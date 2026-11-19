@@ -1,0 +1,6 @@
+{
+  "name": "Candy Crush Match-3 Saga",
+  "description": "A vibrant Candy Crush-inspired Match-3 puzzle game with special candies, cascading combos, particle VFX, and synthesized Web Audio.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
