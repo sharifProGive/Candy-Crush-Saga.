@@ -1,16 +1,13 @@
-import React from 'react';
-import { Gift, Home, Lock, Music, Pause, Star, Volume2, VolumeX } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import { Gift, Home, Lock, Settings, Star } from 'lucide-react';
 import { LEVELS } from '../game/levels';
 import { LevelProgress } from '../game/types';
 
 interface LevelMapProps {
   progress: Record<number, LevelProgress>;
   highestUnlockedLevel: number;
-  muted: boolean;
-  musicPaused: boolean;
   dailyClaimable: boolean;
-  onToggleMute: () => void;
-  onToggleMusicPause: () => void;
+  onOpenSettings: () => void;
   onOpenDailyRewards: () => void;
   onSelectLevel: (levelId: number) => void;
   onBackHome: () => void;
@@ -19,15 +16,18 @@ interface LevelMapProps {
 export const LevelMap: React.FC<LevelMapProps> = ({
   progress,
   highestUnlockedLevel,
-  muted,
-  musicPaused,
   dailyClaimable,
-  onToggleMute,
-  onToggleMusicPause,
+  onOpenSettings,
   onOpenDailyRewards,
   onSelectLevel,
   onBackHome,
 }) => {
+  const currentNodeRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    currentNodeRef.current?.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
+  }, [highestUnlockedLevel]);
+
   // Reverse order so Level 1 starts at bottom and Level 12 is at the top (just like Candy Crush Saga!)
   const orderedLevels = [...LEVELS].reverse();
 
@@ -78,21 +78,12 @@ export const LevelMap: React.FC<LevelMapProps> = ({
           </button>
           <button
             type="button"
-            onClick={onToggleMusicPause}
-            aria-label={musicPaused ? 'Play lobby music' : 'Pause lobby music'}
-            title={musicPaused ? 'Play Music' : 'Pause Music'}
-            className="w-11 h-11 rounded-full bg-white/90 hover:bg-white text-[#b3125d] shadow flex items-center justify-center cursor-pointer transition-transform active:scale-95"
+            onClick={onOpenSettings}
+            aria-label="Open Settings"
+            title="Settings"
+            className="w-11 h-11 rounded-full bg-gradient-to-b from-[#3b82f6] to-[#1d4ed8] hover:from-[#2563eb] hover:to-[#1e40af] text-white border-2 border-[#93c5fd] shadow flex items-center justify-center cursor-pointer transition-transform active:scale-95"
           >
-            {musicPaused ? <Music className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
-          </button>
-          <button
-            type="button"
-            onClick={onToggleMute}
-            aria-label={muted ? 'Unmute audio' : 'Mute audio'}
-            title={muted ? 'Unmute Audio' : 'Mute Audio'}
-            className="w-11 h-11 rounded-full bg-white/90 hover:bg-white text-[#b3125d] shadow flex items-center justify-center cursor-pointer transition-transform active:scale-95"
-          >
-            {muted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+            <Settings className="w-5 h-5" />
           </button>
         </div>
       </header>
@@ -138,6 +129,7 @@ export const LevelMap: React.FC<LevelMapProps> = ({
                   )}
 
                   <div
+                    ref={isCurrent ? currentNodeRef : undefined}
                     className="relative flex flex-col items-center py-2"
                     style={{ transform: `translateX(${offsetX}%)` }}
                   >

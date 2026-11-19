@@ -96,6 +96,48 @@
     0 4px 8px rgba(12, 94, 33, 0.25);
 }
 
+/* Bright green draggable volume slider bar & handle */
+.candy-volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 12px;
+  border-radius: 9999px;
+  outline: none;
+}
+
+.candy-volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+  background: linear-gradient(180deg, #4ade80 0%, #22c55e 55%, #16a34a 100%);
+  border: 3px solid #ffffff;
+  box-shadow: 0 2px 8px rgba(22, 163, 74, 0.55);
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.candy-volume-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 3px 10px rgba(22, 163, 74, 0.7);
+}
+
+.candy-volume-slider::-webkit-slider-thumb:active {
+  transform: scale(1.16);
+}
+
+.candy-volume-slider::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+  background: linear-gradient(180deg, #4ade80 0%, #22c55e 55%, #16a34a 100%);
+  border: 3px solid #ffffff;
+  box-shadow: 0 2px 8px rgba(22, 163, 74, 0.55);
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
 /* Text outline utility for juicy candy numbers */
 .text-stroke-pink {
   -webkit-text-stroke: 2px #9e1054;

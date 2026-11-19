@@ -3,6 +3,7 @@ import { soundEngine } from './audio/soundEngine';
 import { DailyRewardModal } from './components/DailyRewardModal';
 import { GameBoard } from './components/GameBoard';
 import { LevelMap } from './components/LevelMap';
+import { SettingsModal } from './components/SettingsModal';
 import { TitleScreen } from './components/TitleScreen';
 import {
   canClaimDailyReward,
@@ -13,6 +14,13 @@ import {
   saveDailyRewardState,
 } from './game/dailyRewards';
 import { LEVELS } from './game/levels';
+import {
+  detectStereoAudioCapability,
+  GameSettings,
+  loadGameSettings,
+  saveGameSettings,
+  StereoCapability,
+} from './game/settings';
 import { GameScreen, LevelProgress } from './game/types';
 
 const STORAGE_KEY = 'candy_crush_saga_progress_v1';
@@ -36,8 +44,11 @@ export default function App() {
   );
   const [justClaimedDay, setJustClaimedDay] = useState<number | null>(null);
   const [activeLevelId, setActiveLevelId] = useState<number>(1);
-  const [muted, setMuted] = useState<boolean>(false);
-  const [musicPaused, setMusicPaused] = useState<boolean>(false);
+  const [stereoCapability] = useState<StereoCapability>(() => detectStereoAudioCapability());
+  const [settings, setSettings] = useState<GameSettings>(() =>
+    loadGameSettings(stereoCapability.supported)
+  );
+  const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
 
   const highestUnlockedLevel = useMemo(() => {
     let unlocked = 1;
@@ -61,19 +72,24 @@ export default function App() {
     }
   }, [progress]);
 
+  // Sync persisted settings to soundEngine immediately and whenever updated
+  useEffect(() => {
+    saveGameSettings(settings);
+    soundEngine.applySettings(settings, stereoCapability.supported);
+  }, [settings, stereoCapability.supported]);
+
   // Automatically switch between File 1 (Lobby/Home) and File 2 (Gameplay) based on screen state
   useEffect(() => {
     const targetTrack = screen === 'PLAYING' ? 'gameplay' : 'lobby';
     soundEngine.setMusicTrack(targetTrack);
-    setMusicPaused(false);
   }, [screen]);
 
-  // Pause music cleanly if browser tab is hidden, resume when visible (unless manually paused/muted)
+  // Pause music cleanly if browser tab is hidden, resume when visible (if background music enabled)
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.hidden) {
         soundEngine.pauseMusic();
-      } else if (!musicPaused && !muted) {
+      } else if (settings.backgroundMusic && settings.volume > 0) {
         soundEngine.resumeMusic();
       }
     };
@@ -81,7 +97,7 @@ export default function App() {
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [musicPaused, muted]);
+  }, [settings.backgroundMusic, settings.volume]);
 
   useEffect(() => {
     soundEngine.preloadVoiceClips();
@@ -90,39 +106,37 @@ export default function App() {
     };
   }, []);
 
-  const handleToggleMute = useCallback(() => {
-    soundEngine.unlock();
-    const next = !muted;
-    setMuted(next);
-    soundEngine.setMuted(next);
-    if (!next) {
-      if (!musicPaused) {
-        soundEngine.resumeMusic();
-      }
-      soundEngine.playButton();
-    }
-  }, [muted, musicPaused]);
-
-  const handleToggleMusicPause = useCallback(() => {
+  const handleOpenSettings = useCallback(() => {
     soundEngine.unlock();
     soundEngine.playButton();
-    if (musicPaused) {
-      setMusicPaused(false);
-      soundEngine.resumeMusic();
-    } else {
-      setMusicPaused(true);
-      soundEngine.pauseMusic();
-    }
-  }, [musicPaused]);
+    setShowSettingsModal(true);
+  }, []);
+
+  const handleUpdateSettings = useCallback(
+    (patch: Partial<GameSettings>) => {
+      soundEngine.unlock();
+      setSettings((prev) => {
+        const next: GameSettings = {
+          ...prev,
+          ...patch,
+          spatialAudio: stereoCapability.supported
+            ? (patch.spatialAudio ?? prev.spatialAudio)
+            : false,
+        };
+        soundEngine.applySettings(next, stereoCapability.supported);
+        if (patch.gameSounds === true || (patch.spatialAudio !== undefined && next.gameSounds)) {
+          soundEngine.playButton();
+        }
+        if (patch.vibration === true) {
+          soundEngine.vibrate(20);
+        }
+        return next;
+      });
+    },
+    [stereoCapability.supported]
+  );
 
   const handlePlayNow = useCallback(() => {
-    soundEngine.unlock();
-    soundEngine.playButton();
-    setActiveLevelId(highestUnlockedLevel);
-    setScreen('PLAYING');
-  }, [highestUnlockedLevel]);
-
-  const handleOpenMap = useCallback(() => {
     soundEngine.unlock();
     soundEngine.playButton();
     setScreen('LEVEL_MAP');
@@ -194,18 +208,13 @@ export default function App() {
     <div className="w-screen h-screen overflow-hidden">
       {screen === 'TITLE_MENU' && (
         <TitleScreen
-          highestUnlockedLevel={highestUnlockedLevel}
           totalStars={totalStars}
           maxStars={LEVELS.length * 3}
-          muted={muted}
-          musicPaused={musicPaused}
           dailyClaimable={dailyClaimable}
-          disableShortcuts={showDailyModal}
-          onToggleMute={handleToggleMute}
-          onToggleMusicPause={handleToggleMusicPause}
+          disableShortcuts={showDailyModal || showSettingsModal}
+          onOpenSettings={handleOpenSettings}
           onOpenDailyRewards={handleOpenDailyRewards}
           onPlayNow={handlePlayNow}
-          onOpenMap={handleOpenMap}
         />
       )}
 
@@ -213,11 +222,8 @@ export default function App() {
         <LevelMap
           progress={progress}
           highestUnlockedLevel={highestUnlockedLevel}
-          muted={muted}
-          musicPaused={musicPaused}
           dailyClaimable={dailyClaimable}
-          onToggleMute={handleToggleMute}
-          onToggleMusicPause={handleToggleMusicPause}
+          onOpenSettings={handleOpenSettings}
           onOpenDailyRewards={handleOpenDailyRewards}
           onSelectLevel={handleSelectLevel}
           onBackHome={() => {
@@ -230,12 +236,10 @@ export default function App() {
       {screen === 'PLAYING' && (
         <GameBoard
           level={activeLevel}
-          muted={muted}
-          musicPaused={musicPaused}
+          backgroundMusicEnabled={settings.backgroundMusic && settings.volume > 0}
           inventory={dailyState.inventory}
           onConsumeBooster={handleConsumeBooster}
-          onToggleMute={handleToggleMute}
-          onToggleMusicPause={handleToggleMusicPause}
+          onOpenSettings={handleOpenSettings}
           onLevelComplete={handleLevelComplete}
           onNextLevel={handleNextLevel}
           onBackToMap={() => setScreen('LEVEL_MAP')}
@@ -250,6 +254,49 @@ export default function App() {
           onClose={() => {
             soundEngine.playButton();
             setShowDailyModal(false);
+          }}
+        />
+      )}
+
+      {showSettingsModal && (
+        <SettingsModal
+          settings={settings}
+          stereoCapability={stereoCapability}
+          onUpdateSettings={handleUpdateSettings}
+          onTestGameSound={() => {
+            soundEngine.unlock();
+            if (!settings.gameSounds || settings.volume === 0) {
+              const nextSettings: GameSettings = {
+                ...settings,
+                gameSounds: true,
+                volume: settings.volume === 0 ? 75 : settings.volume,
+              };
+              setSettings(nextSettings);
+              soundEngine.applySettings(nextSettings, stereoCapability.supported);
+            }
+            soundEngine.playMatch(3);
+            soundEngine.vibrate(15);
+          }}
+          onTestBackgroundMusic={() => {
+            soundEngine.unlock();
+            if (!settings.backgroundMusic || settings.volume === 0) {
+              const nextSettings: GameSettings = {
+                ...settings,
+                backgroundMusic: true,
+                volume: settings.volume === 0 ? 75 : settings.volume,
+              };
+              setSettings(nextSettings);
+              soundEngine.applySettings(nextSettings, stereoCapability.supported);
+            }
+            return soundEngine.previewBackgroundMusic();
+          }}
+          onClose={() => {
+            soundEngine.playButton();
+            const expectedTrack = screen === 'PLAYING' ? 'gameplay' : 'lobby';
+            if (soundEngine.getCurrentTrack() !== expectedTrack) {
+              soundEngine.setMusicTrack(expectedTrack);
+            }
+            setShowSettingsModal(false);
           }}
         />
       )}

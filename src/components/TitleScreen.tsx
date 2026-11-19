@@ -1,109 +1,28 @@
-import React, { useEffect, useState } from 'react';
-import {
-  CheckCircle2,
-  Download,
-  Gift,
-  GitBranch,
-  Loader2,
-  Map as MapIcon,
-  Music,
-  Pause,
-  UploadCloud,
-  Volume2,
-  VolumeX,
-  X,
-} from 'lucide-react';
-import {
-  downloadZipFromPreview,
-  GitHubPushResult,
-  pushZipToGitHub,
-} from '../utils/githubExport';
+import React, { useEffect } from 'react';
+import { Gift, Settings } from 'lucide-react';
 import { CandySprite } from './CandySprite';
 
 interface TitleScreenProps {
-  highestUnlockedLevel: number;
   totalStars: number;
   maxStars: number;
-  muted: boolean;
-  musicPaused: boolean;
   dailyClaimable: boolean;
   disableShortcuts?: boolean;
-  onToggleMute: () => void;
-  onToggleMusicPause: () => void;
+  onOpenSettings: () => void;
   onOpenDailyRewards: () => void;
   onPlayNow: () => void;
-  onOpenMap: () => void;
 }
 
 export const TitleScreen: React.FC<TitleScreenProps> = ({
-  highestUnlockedLevel,
   totalStars,
   maxStars,
-  muted,
-  musicPaused,
   dailyClaimable,
   disableShortcuts = false,
-  onToggleMute,
-  onToggleMusicPause,
+  onOpenSettings,
   onOpenDailyRewards,
   onPlayNow,
-  onOpenMap,
 }) => {
-  const [showExportModal, setShowExportModal] = useState(false);
-  const [exportTab, setExportTab] = useState<'download' | 'github'>('download');
-  const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
-  const [exportError, setExportError] = useState<string | null>(null);
-  const [exportNotice, setExportNotice] = useState<string | null>(null);
-
-  // Direct GitHub Push State
-  const [ghOwner, setGhOwner] = useState('sharifProGive');
-  const [ghRepo, setGhRepo] = useState('Candy-Crush-Saga.');
-  const [ghBranch, setGhBranch] = useState('main');
-  const [ghToken, setGhToken] = useState('');
-  const [ghPackageType, setGhPackageType] = useState<'static' | 'source'>('static');
-  const [ghPushing, setGhPushing] = useState(false);
-  const [ghProgress, setGhProgress] = useState<{ msg: string; pct: number } | null>(null);
-  const [ghResult, setGhResult] = useState<GitHubPushResult | null>(null);
-
-  const handleBlobDownload = async (kind: 'static' | 'source', filename: string) => {
-    setExportError(null);
-    setExportNotice(null);
-    setDownloadingKey(kind);
-    try {
-      await downloadZipFromPreview(kind, filename);
-      setExportNotice(`Saved ${filename} — extract it first before uploading files to GitHub.`);
-    } catch (err) {
-      setExportError(err instanceof Error ? err.message : 'Download failed.');
-    } finally {
-      setDownloadingKey(null);
-    }
-  };
-
-  const handleGitHubPush = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setExportError(null);
-    setGhResult(null);
-    setGhPushing(true);
-    setGhProgress({ msg: 'Starting upload...', pct: 2 });
-    try {
-      const result = await pushZipToGitHub({
-        packageKind: ghPackageType,
-        owner: ghOwner,
-        repo: ghRepo,
-        branch: ghBranch,
-        token: ghToken,
-        onProgress: (msg, pct) => setGhProgress({ msg, pct }),
-      });
-      setGhResult(result);
-    } catch (err) {
-      setExportError(err instanceof Error ? err.message : 'GitHub push failed.');
-    } finally {
-      setGhPushing(false);
-    }
-  };
-
   useEffect(() => {
-    if (disableShortcuts || showExportModal) return;
+    if (disableShortcuts) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
@@ -112,7 +31,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onPlayNow, disableShortcuts, showExportModal]);
+  }, [onPlayNow, disableShortcuts]);
 
   return (
     <div className="relative w-full h-full overflow-hidden flex flex-col items-center justify-between bg-gradient-to-b from-[#63b3ff] via-[#8fd1ff] to-[#bfe8ff]">
@@ -230,37 +149,15 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         <div className="text-sm font-bold text-[#0c3c6e] bg-white/70 px-3.5 py-1.5 rounded-xl shadow-sm tabular-nums">
           Stars: {totalStars} / {maxStars}
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowExportModal(true)}
-            aria-label="Download project ZIP"
-            title="Download Project ZIP"
-            className="h-11 px-3 rounded-full bg-white/85 hover:bg-white text-[#0e67c2] shadow-md flex items-center justify-center gap-1.5 text-xs font-extrabold transition-transform active:scale-95 cursor-pointer"
-          >
-            <Download className="w-4 h-4" />
-            <span className="hidden sm:inline">Export ZIP</span>
-          </button>
-          <button
-            type="button"
-            onClick={onToggleMusicPause}
-            aria-label={musicPaused ? 'Play lobby music' : 'Pause lobby music'}
-            title={musicPaused ? 'Play Music' : 'Pause Music'}
-            className="h-11 px-3.5 rounded-full bg-white/85 hover:bg-white text-[#b3125d] shadow-md flex items-center justify-center gap-1.5 text-xs font-extrabold transition-transform active:scale-95 cursor-pointer"
-          >
-            {musicPaused ? <Music className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
-            <span className="hidden sm:inline">{musicPaused ? 'Play Music' : 'Pause Music'}</span>
-          </button>
-          <button
-            type="button"
-            onClick={onToggleMute}
-            aria-label={muted ? 'Unmute audio' : 'Mute audio'}
-            title={muted ? 'Unmute Audio' : 'Mute Audio'}
-            className="w-11 h-11 rounded-full bg-white/85 hover:bg-white text-[#b3125d] shadow-md flex items-center justify-center transition-transform active:scale-95 cursor-pointer"
-          >
-            {muted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          aria-label="Open Settings"
+          title="Settings"
+          className="w-11 h-11 rounded-full bg-gradient-to-b from-[#3b82f6] to-[#1d4ed8] hover:from-[#2563eb] hover:to-[#1e40af] text-white border-2 border-[#93c5fd] shadow-md flex items-center justify-center transition-transform active:scale-95 cursor-pointer"
+        >
+          <Settings className="w-5 h-5" />
+        </button>
       </div>
 
       {/* Center Hanging Candy Sign Lockup */}
@@ -344,272 +241,24 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           onClick={onPlayNow}
           className="candy-btn-pink w-full py-3.5 px-8 rounded-full font-display font-bold text-2xl sm:text-3xl text-white tracking-wide cursor-pointer whitespace-nowrap"
         >
-          Play Level {highestUnlockedLevel}
+          Play
         </button>
 
-        <div className="w-full flex gap-2.5">
-          <button
-            type="button"
-            onClick={onOpenMap}
-            className="candy-btn-blue flex-1 py-2.5 px-4 rounded-full font-display font-semibold text-base sm:text-lg text-white flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
-          >
-            <MapIcon className="w-4 h-4 sm:w-5 sm:h-5" />
-            <span>Map</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={onOpenDailyRewards}
-            className={`candy-btn-green flex-1 py-2.5 px-4 rounded-full font-display font-semibold text-base sm:text-lg text-white flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
-              dailyClaimable ? 'ring-4 ring-yellow-300' : ''
-            }`}
-          >
-            <Gift className="w-4 h-4 sm:w-5 sm:h-5" />
-            <span>{dailyClaimable ? 'Daily Gift!' : 'Rewards'}</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onOpenDailyRewards}
+          className={`candy-btn-green w-full py-2.5 px-6 rounded-full font-display font-semibold text-base sm:text-lg text-white flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap ${
+            dailyClaimable ? 'ring-4 ring-yellow-300' : ''
+          }`}
+        >
+          <Gift className="w-4 h-4 sm:w-5 sm:h-5" />
+          <span>{dailyClaimable ? 'Daily Gift!' : 'Rewards'}</span>
+        </button>
 
         <p className="text-xs sm:text-sm font-bold text-[#0c3c6e] bg-white/65 px-4 py-1.5 rounded-xl text-center">
           Drag or click candies to swap · Enter to play · Esc to pause
         </p>
       </div>
-
-      {/* Export ZIP & Direct GitHub Push Modal for Mobile */}
-      {showExportModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 sm:p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Export or Push Project to GitHub"
-        >
-          <div className="relative w-full max-w-md max-h-[92vh] overflow-y-auto rounded-3xl bg-[#fff7fb] border-4 border-[#9bd7ff] shadow-2xl p-5 sm:p-6 text-center flex flex-col items-center gap-3.5">
-            <button
-              type="button"
-              onClick={() => setShowExportModal(false)}
-              aria-label="Close export modal"
-              className="absolute top-3.5 right-3.5 w-9 h-9 rounded-full bg-slate-200/80 hover:bg-slate-300 text-slate-700 flex items-center justify-center cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <h2 className="font-display font-bold text-2xl text-[#0e67c2]">
-              Export &amp; GitHub
-            </h2>
-
-            {/* Tab Switcher */}
-            <div className="w-full grid grid-cols-2 gap-1.5 bg-sky-100/80 p-1 rounded-2xl">
-              <button
-                type="button"
-                onClick={() => {
-                  setExportTab('download');
-                  setExportError(null);
-                }}
-                className={`py-2 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
-                  exportTab === 'download'
-                    ? 'bg-white text-[#0e67c2] shadow-sm'
-                    : 'text-slate-600 hover:text-slate-800'
-                }`}
-              >
-                <Download className="w-4 h-4" />
-                <span>Download ZIP</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setExportTab('github');
-                  setExportError(null);
-                }}
-                className={`py-2 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
-                  exportTab === 'github'
-                    ? 'bg-white text-[#b3125d] shadow-sm'
-                    : 'text-slate-600 hover:text-slate-800'
-                }`}
-              >
-                <UploadCloud className="w-4 h-4" />
-                <span>Push to GitHub</span>
-              </button>
-            </div>
-
-            {exportError && (
-              <div className="w-full rounded-xl bg-rose-100 border border-rose-300 text-rose-800 text-xs font-bold px-3 py-2 text-left">
-                {exportError}
-              </div>
-            )}
-
-            {exportNotice && (
-              <div className="w-full rounded-xl bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-bold px-3 py-2 text-left">
-                {exportNotice}
-              </div>
-            )}
-
-            {exportTab === 'download' ? (
-              <div className="w-full flex flex-col gap-2.5">
-                <p className="text-xs font-bold text-slate-600 leading-relaxed">
-                  Downloads directly inside your active preview session (~8.5 MB, includes custom music + 15 voice clips).
-                </p>
-
-                <button
-                  type="button"
-                  disabled={downloadingKey !== null}
-                  onClick={() =>
-                    handleBlobDownload('static', 'candy-crush-github-pages-ready.zip')
-                  }
-                  className="candy-btn-green w-full py-3 px-4 rounded-full font-display font-bold text-base sm:text-lg text-white flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
-                >
-                  {downloadingKey === 'static' ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <Download className="w-5 h-5" />
-                  )}
-                  <span>
-                    {downloadingKey === 'static' ? 'Preparing ZIP...' : 'GitHub Pages Static ZIP'}
-                  </span>
-                </button>
-                <p className="text-[11px] font-bold text-slate-500 -mt-1">
-                  Built HTML/CSS/JS + audio — extract &amp; upload to GitHub (8.6 MB total).
-                </p>
-
-                <button
-                  type="button"
-                  disabled={downloadingKey !== null}
-                  onClick={() =>
-                    handleBlobDownload('source', 'candy-crush-full-source.zip')
-                  }
-                  className="candy-btn-blue w-full py-2.5 px-4 rounded-full font-display font-semibold text-base text-white flex items-center justify-center gap-2 cursor-pointer mt-1 disabled:opacity-60"
-                >
-                  {downloadingKey === 'source' ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Download className="w-4 h-4" />
-                  )}
-                  <span>
-                    {downloadingKey === 'source' ? 'Preparing ZIP...' : 'Full Source Code ZIP'}
-                  </span>
-                </button>
-                <p className="text-[11px] font-bold text-slate-500 -mt-1">
-                  Complete Vite + React + TS project + GitHub Actions workflow.
-                </p>
-              </div>
-            ) : (
-              <form onSubmit={handleGitHubPush} className="w-full flex flex-col gap-2.5 text-left">
-                <p className="text-[11px] font-bold text-slate-600 leading-snug">
-                  Push all files straight to your GitHub repo from mobile without downloading or using a PC.
-                </p>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] font-extrabold text-slate-700">GitHub Username</span>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. sharif"
-                      value={ghOwner}
-                      onChange={(e) => setGhOwner(e.target.value)}
-                      className="w-full rounded-xl border-2 border-sky-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-800 focus:border-[#0e67c2] focus:outline-none"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] font-extrabold text-slate-700">Repository</span>
-                    <input
-                      type="text"
-                      required
-                      value={ghRepo}
-                      onChange={(e) => setGhRepo(e.target.value)}
-                      className="w-full rounded-xl border-2 border-sky-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-800 focus:border-[#0e67c2] focus:outline-none"
-                    />
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] font-extrabold text-slate-700 flex items-center gap-1">
-                      <GitBranch className="w-3 h-3" /> Branch
-                    </span>
-                    <input
-                      type="text"
-                      required
-                      value={ghBranch}
-                      onChange={(e) => setGhBranch(e.target.value)}
-                      className="w-full rounded-xl border-2 border-sky-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-800 focus:border-[#0e67c2] focus:outline-none"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] font-extrabold text-slate-700">Package Type</span>
-                    <select
-                      value={ghPackageType}
-                      onChange={(e) => setGhPackageType(e.target.value as 'static' | 'source')}
-                      className="w-full rounded-xl border-2 border-sky-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:border-[#0e67c2] focus:outline-none"
-                    >
-                      <option value="static">Ready Static Site (21 files)</option>
-                      <option value="source">Full Source Code (40 files)</option>
-                    </select>
-                  </label>
-                </div>
-
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] font-extrabold text-slate-700">
-                    GitHub Personal Access Token (repo scope)
-                  </span>
-                  <input
-                    type="password"
-                    required
-                    placeholder="ghp_... or github_pat_..."
-                    value={ghToken}
-                    onChange={(e) => setGhToken(e.target.value)}
-                    className="w-full rounded-xl border-2 border-sky-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-800 focus:border-[#0e67c2] focus:outline-none"
-                  />
-                  <span className="text-[10px] font-semibold text-slate-500">
-                    Token stays only in memory and talks directly to api.github.com.
-                  </span>
-                </label>
-
-                {ghProgress && (
-                  <div className="w-full flex flex-col gap-1">
-                    <div className="flex justify-between text-[11px] font-extrabold text-[#0e67c2]">
-                      <span>{ghProgress.msg}</span>
-                      <span>{ghProgress.pct}%</span>
-                    </div>
-                    <div className="w-full h-2.5 bg-sky-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-[#22b84a] to-[#0e67c2] transition-all duration-200"
-                        style={{ width: `${ghProgress.pct}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {ghResult && (
-                  <div className="w-full rounded-xl bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-bold px-3 py-2.5 flex flex-col gap-1">
-                    <div className="flex items-center gap-1.5 font-extrabold">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>Pushed {ghResult.fileCount} files to {ghResult.branch}!</span>
-                    </div>
-                    <div className="text-[11px] break-all">
-                      Repo: {ghResult.repoUrl}
-                    </div>
-                    <div className="text-[11px] break-all">
-                      Enable Settings → Pages for: {ghResult.pagesUrl}
-                    </div>
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={ghPushing}
-                  className="candy-btn-pink w-full py-2.5 px-4 rounded-full font-display font-bold text-base text-white flex items-center justify-center gap-2 cursor-pointer mt-1 disabled:opacity-60"
-                >
-                  {ghPushing ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <UploadCloud className="w-5 h-5" />
-                  )}
-                  <span>{ghPushing ? 'Pushing to GitHub...' : 'Push Directly to GitHub'}</span>
-                </button>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 };

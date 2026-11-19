@@ -1,3 +1,4 @@
+import { GameSettings, triggerHaptic } from '../game/settings';
 import { PraiseWord } from '../game/types';
 
 export type MusicTrack = 'lobby' | 'gameplay' | 'none';
@@ -68,8 +69,17 @@ class CandySoundEngine {
   private sfxGain: GainNode | null = null;
   private voiceGain: GainNode | null = null;
   private echoInput: GainNode | null = null;
+  private echoPanLeft: StereoPannerNode | null = null;
+  private echoPanRight: StereoPannerNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
   private muted = false;
+
+  // User Settings State
+  private gameSoundsEnabled = true;
+  private backgroundMusicEnabled = true;
+  private volumeScale = 0.85;
+  private spatialAudioEnabled = true;
+  private vibrationEnabled = true;
 
   // Custom MP3 Background Tracks (File 1: Home/Lobby, File 2: Gameplay)
   private tracks: Partial<Record<Exclude<MusicTrack, 'none'>, HTMLAudioElement>> = {};
@@ -90,6 +100,15 @@ class CandySoundEngine {
   private lastPhraseTime: Partial<Record<PraiseWord, number>> = {};
   private lastSpokenPhrase: PraiseWord | null = null;
 
+  private getEffectiveBgmVolume(): number {
+    if (this.muted || !this.backgroundMusicEnabled) return 0;
+    return TARGET_BGM_VOLUME * this.volumeScale;
+  }
+
+  private canPlaySfx(): boolean {
+    return !this.muted && this.gameSoundsEnabled && this.volumeScale > 0;
+  }
+
   private ensureContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
     if (!this.ctx) {
@@ -99,37 +118,75 @@ class CandySoundEngine {
       if (!AudioCtx) return null;
       this.ctx = new AudioCtx();
 
+      if (this.ctx.destination.maxChannelCount > 1) {
+        try {
+          this.ctx.destination.channelCount = Math.min(2, this.ctx.destination.maxChannelCount);
+        } catch {
+          // Keep default channel count
+        }
+      }
+
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.value = this.muted ? 0 : 0.9;
+      this.masterGain.gain.value = this.muted ? 0 : 0.9 * this.volumeScale;
       this.masterGain.connect(this.ctx.destination);
 
       this.sfxGain = this.ctx.createGain();
-      this.sfxGain.gain.value = 0.8;
+      this.sfxGain.gain.value = this.gameSoundsEnabled ? 0.8 : 0;
       this.sfxGain.connect(this.masterGain);
 
       this.voiceGain = this.ctx.createGain();
-      this.voiceGain.gain.value = 1.0;
+      this.voiceGain.gain.value = this.gameSoundsEnabled ? 1.0 : 0;
       this.voiceGain.connect(this.masterGain);
 
-      // Warm Echo / Delay Bus (lowpassed so echoes are soft & dreamy, never metallic)
+      // Game-Only Dual-Speaker / Spatial Warm Echo Bus (lowpassed so echoes are soft & dreamy)
       this.echoInput = this.ctx.createGain();
-      this.echoInput.gain.value = 0.34;
+      this.echoInput.gain.value = this.spatialAudioEnabled ? 0.38 : 0;
 
-      const delay = this.ctx.createDelay(1.0);
-      delay.delayTime.value = 0.145;
+      const delayLeft = this.ctx.createDelay(1.0);
+      delayLeft.delayTime.value = 0.125;
 
-      const echoFilter = this.ctx.createBiquadFilter();
-      echoFilter.type = 'lowpass';
-      echoFilter.frequency.value = 1150;
+      const delayRight = this.ctx.createDelay(1.0);
+      delayRight.delayTime.value = 0.175;
 
-      const feedback = this.ctx.createGain();
-      feedback.gain.value = 0.28;
+      const filterLeft = this.ctx.createBiquadFilter();
+      filterLeft.type = 'lowpass';
+      filterLeft.frequency.value = 1200;
 
-      this.echoInput.connect(delay);
-      delay.connect(echoFilter);
-      echoFilter.connect(this.masterGain);
-      echoFilter.connect(feedback);
-      feedback.connect(delay);
+      const filterRight = this.ctx.createBiquadFilter();
+      filterRight.type = 'lowpass';
+      filterRight.frequency.value = 1120;
+
+      const feedbackLeft = this.ctx.createGain();
+      feedbackLeft.gain.value = 0.24;
+
+      const feedbackRight = this.ctx.createGain();
+      feedbackRight.gain.value = 0.24;
+
+      this.echoInput.connect(delayLeft);
+      this.echoInput.connect(delayRight);
+      delayLeft.connect(filterLeft);
+      delayRight.connect(filterRight);
+
+      // Cross-feed gently for wide dual-speaker spatial spread
+      filterLeft.connect(feedbackLeft);
+      feedbackLeft.connect(delayRight);
+      filterRight.connect(feedbackRight);
+      feedbackRight.connect(delayLeft);
+
+      if (typeof this.ctx.createStereoPanner === 'function') {
+        this.echoPanLeft = this.ctx.createStereoPanner();
+        this.echoPanLeft.pan.value = this.spatialAudioEnabled ? -0.78 : 0;
+        this.echoPanRight = this.ctx.createStereoPanner();
+        this.echoPanRight.pan.value = this.spatialAudioEnabled ? 0.78 : 0;
+
+        filterLeft.connect(this.echoPanLeft);
+        this.echoPanLeft.connect(this.masterGain);
+        filterRight.connect(this.echoPanRight);
+        this.echoPanRight.connect(this.masterGain);
+      } else {
+        filterLeft.connect(this.masterGain);
+        filterRight.connect(this.masterGain);
+      }
 
       // Pre-generate 1-second pink-tinted noise buffer for magical swooshes
       const sampleRate = this.ctx.sampleRate;
@@ -253,7 +310,13 @@ class CandySoundEngine {
 
     const handleFirstGesture = () => {
       this.unlock();
-      if (this.desiredTrack !== 'none' && !this.musicPaused && !this.muted) {
+      if (
+        this.desiredTrack !== 'none' &&
+        !this.musicPaused &&
+        !this.muted &&
+        this.backgroundMusicEnabled &&
+        this.volumeScale > 0
+      ) {
         this.playTrackElement(this.desiredTrack);
       }
       window.removeEventListener('pointerdown', handleFirstGesture);
@@ -269,13 +332,24 @@ class CandySoundEngine {
     const audio = this.getOrCreateAudio(key);
     if (!audio) return;
 
-    audio.muted = this.muted;
+    const targetVol = this.getEffectiveBgmVolume();
+    audio.muted = this.muted || !this.backgroundMusicEnabled;
+    if (targetVol <= 0) {
+      audio.volume = 0;
+      return;
+    }
+
     const playPromise = audio.play();
     if (playPromise !== undefined) {
       playPromise
         .then(() => {
-          if (this.desiredTrack === key && !this.musicPaused && !this.muted) {
-            this.fadeAudioTo(key, TARGET_BGM_VOLUME, 420);
+          if (
+            this.desiredTrack === key &&
+            !this.musicPaused &&
+            !this.muted &&
+            this.backgroundMusicEnabled
+          ) {
+            this.fadeAudioTo(key, this.getEffectiveBgmVolume(), 420);
           }
         })
         .catch(() => {
@@ -297,16 +371,99 @@ class CandySoundEngine {
     return this.musicPaused;
   }
 
+  public vibrate(pattern: number | number[]): void {
+    triggerHaptic(pattern, this.vibrationEnabled);
+  }
+
+  public applySettings(settings: GameSettings, stereoSupported: boolean): void {
+    this.gameSoundsEnabled = settings.gameSounds;
+    this.backgroundMusicEnabled = settings.backgroundMusic;
+    this.volumeScale = Math.max(0, Math.min(1, settings.volume / 100));
+    this.spatialAudioEnabled = stereoSupported && settings.spatialAudio;
+    this.vibrationEnabled = settings.vibration;
+
+    if (this.ctx) {
+      const now = this.ctx.currentTime;
+      if (this.masterGain) {
+        this.masterGain.gain.setTargetAtTime(
+          this.muted ? 0 : 0.9 * this.volumeScale,
+          now,
+          0.025
+        );
+      }
+      if (this.sfxGain) {
+        this.sfxGain.gain.setTargetAtTime(this.gameSoundsEnabled ? 0.8 : 0, now, 0.025);
+      }
+      if (this.voiceGain) {
+        this.voiceGain.gain.setTargetAtTime(this.gameSoundsEnabled ? 1.0 : 0, now, 0.025);
+      }
+      if (this.echoInput) {
+        this.echoInput.gain.setTargetAtTime(
+          this.spatialAudioEnabled ? 0.38 : 0,
+          now,
+          0.035
+        );
+      }
+      if (this.echoPanLeft && this.echoPanRight) {
+        this.echoPanLeft.pan.setTargetAtTime(this.spatialAudioEnabled ? -0.78 : 0, now, 0.04);
+        this.echoPanRight.pan.setTargetAtTime(this.spatialAudioEnabled ? 0.78 : 0, now, 0.04);
+      }
+    }
+
+    if ((!this.gameSoundsEnabled || this.volumeScale <= 0) && this.activeVoiceSource) {
+      try {
+        this.activeVoiceSource.stop();
+      } catch {
+        // ignore
+      }
+      this.activeVoiceSource = null;
+    }
+
+    const bgmVol = this.getEffectiveBgmVolume();
+    (['lobby', 'gameplay'] as const).forEach((key) => {
+      const audio = this.tracks[key];
+      if (!audio) return;
+      audio.muted = this.muted || !this.backgroundMusicEnabled;
+      if (key === this.desiredTrack) {
+        this.clearFade(key);
+        if (!this.backgroundMusicEnabled || this.muted || bgmVol <= 0) {
+          audio.volume = 0;
+          if (!audio.paused) audio.pause();
+        } else if (!this.musicPaused) {
+          audio.volume = bgmVol;
+          if (audio.paused) {
+            this.playTrackElement(key);
+          }
+        }
+      }
+    });
+
+    if (
+      this.desiredTrack !== 'none' &&
+      this.backgroundMusicEnabled &&
+      !this.muted &&
+      !this.musicPaused &&
+      bgmVol > 0 &&
+      !this.tracks[this.desiredTrack]
+    ) {
+      this.playTrackElement(this.desiredTrack);
+    }
+  }
+
   public setMuted(mute: boolean): void {
     this.muted = mute;
     if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setTargetAtTime(mute ? 0 : 0.9, this.ctx.currentTime, 0.03);
+      this.masterGain.gain.setTargetAtTime(
+        mute ? 0 : 0.9 * this.volumeScale,
+        this.ctx.currentTime,
+        0.03
+      );
     }
 
     (['lobby', 'gameplay'] as const).forEach((key) => {
       const audio = this.tracks[key];
       if (audio) {
-        audio.muted = mute;
+        audio.muted = mute || !this.backgroundMusicEnabled;
       }
     });
 
@@ -319,7 +476,13 @@ class CandySoundEngine {
       this.activeVoiceSource = null;
     }
 
-    if (!mute && this.desiredTrack !== 'none' && !this.musicPaused) {
+    if (
+      !mute &&
+      this.backgroundMusicEnabled &&
+      this.volumeScale > 0 &&
+      this.desiredTrack !== 'none' &&
+      !this.musicPaused
+    ) {
       this.playTrackElement(this.desiredTrack);
     }
   }
@@ -356,11 +519,11 @@ class CandySoundEngine {
       targetAudio.currentTime = 0;
     }
 
-    if (!this.muted) {
+    if (!this.muted && this.backgroundMusicEnabled && this.volumeScale > 0) {
       if (targetAudio.paused) {
         this.playTrackElement(track);
       } else {
-        this.fadeAudioTo(track, TARGET_BGM_VOLUME, 320);
+        this.fadeAudioTo(track, this.getEffectiveBgmVolume(), 320);
       }
     }
   }
@@ -379,7 +542,14 @@ class CandySoundEngine {
 
   public resumeMusic(): void {
     this.musicPaused = false;
-    if (this.desiredTrack === 'none' || this.muted) return;
+    if (
+      this.desiredTrack === 'none' ||
+      this.muted ||
+      !this.backgroundMusicEnabled ||
+      this.volumeScale <= 0
+    ) {
+      return;
+    }
     this.playTrackElement(this.desiredTrack);
   }
 
@@ -397,6 +567,18 @@ class CandySoundEngine {
     });
   }
 
+  public getCurrentTrack(): MusicTrack {
+    return this.desiredTrack;
+  }
+
+  public previewBackgroundMusic(): Exclude<MusicTrack, 'none'> {
+    this.unlock();
+    const nextTrack: Exclude<MusicTrack, 'none'> =
+      this.desiredTrack === 'lobby' ? 'gameplay' : 'lobby';
+    this.setMusicTrack(nextTrack);
+    return nextTrack;
+  }
+
   private playRoundedTone(
     freq: number,
     startTime: number,
@@ -405,7 +587,8 @@ class CandySoundEngine {
     dest: AudioNode,
     withEcho = false,
     cutoffHz = 1800,
-    endFreq?: number
+    endFreq?: number,
+    pan = 0
   ): void {
     if (!this.ctx) return;
     const osc = this.ctx.createOscillator();
@@ -428,7 +611,16 @@ class CandySoundEngine {
 
     osc.connect(filter);
     filter.connect(gain);
-    gain.connect(dest);
+
+    if (this.spatialAudioEnabled && pan !== 0 && typeof this.ctx.createStereoPanner === 'function') {
+      const panner = this.ctx.createStereoPanner();
+      panner.pan.setValueAtTime(Math.max(-1, Math.min(1, pan)), startTime);
+      gain.connect(panner);
+      panner.connect(dest);
+    } else {
+      gain.connect(dest);
+    }
+
     if (withEcho && this.echoInput) {
       gain.connect(this.echoInput);
     }
@@ -469,49 +661,56 @@ class CandySoundEngine {
   }
 
   public playTap(): void {
-    if (this.muted) return;
+    if (!this.canPlaySfx()) return;
     const ctx = this.ensureContext();
     if (!ctx || !this.sfxGain) return;
     const now = ctx.currentTime;
-    this.playRoundedTone(350, now, 0.085, 0.22, this.sfxGain, true, 1300, 560);
+    this.playRoundedTone(350, now, 0.085, 0.22, this.sfxGain, true, 1300, 560, -0.15);
   }
 
   public playButton(): void {
-    if (this.muted) return;
+    if (!this.canPlaySfx()) return;
     const ctx = this.ensureContext();
     if (!ctx || !this.sfxGain) return;
     const now = ctx.currentTime;
-    this.playRoundedTone(440, now, 0.1, 0.18, this.sfxGain, true, 1400, 520);
-    this.playRoundedTone(587.33, now + 0.045, 0.12, 0.16, this.sfxGain, true, 1500);
+    this.playRoundedTone(440, now, 0.1, 0.18, this.sfxGain, true, 1400, 520, -0.2);
+    this.playRoundedTone(587.33, now + 0.045, 0.12, 0.16, this.sfxGain, true, 1500, undefined, 0.2);
   }
 
   public playSwap(): void {
-    if (this.muted) return;
+    if (!this.canPlaySfx()) return;
     const ctx = this.ensureContext();
     if (!ctx || !this.sfxGain) return;
     const now = ctx.currentTime;
-    this.playRoundedTone(260, now, 0.11, 0.21, this.sfxGain, true, 980, 420);
-    this.playRoundedTone(370, now + 0.045, 0.12, 0.15, this.sfxGain, true, 1020, 520);
+    this.playRoundedTone(260, now, 0.11, 0.21, this.sfxGain, true, 980, 420, -0.28);
+    this.playRoundedTone(370, now + 0.045, 0.12, 0.15, this.sfxGain, true, 1020, 520, 0.28);
   }
 
   public playInvalidSwap(): void {
-    if (this.muted) return;
+    if (!this.canPlaySfx()) return;
     const ctx = this.ensureContext();
     if (!ctx || !this.sfxGain) return;
     const now = ctx.currentTime;
-    this.playRoundedTone(240, now, 0.13, 0.18, this.sfxGain, true, 650, 145);
+    this.playRoundedTone(240, now, 0.13, 0.18, this.sfxGain, true, 650, 145, 0);
   }
 
   public playCascadeDrop(count = 3): void {
-    if (this.muted) return;
+    if (!this.canPlaySfx()) return;
     const ctx = this.ensureContext();
     if (!ctx || !this.sfxGain) return;
     const now = ctx.currentTime;
     const steps = Math.max(2, Math.min(3, count));
-    const bubbles: Array<{ delay: number; startHz: number; endHz: number; cutoff: number; gain: number }> = [
-      { delay: 0, startHz: 240, endHz: 360, cutoff: 1050, gain: 0.11 },
-      { delay: 0.045, startHz: 300, endHz: 430, cutoff: 1150, gain: 0.1 },
-      { delay: 0.09, startHz: 350, endHz: 490, cutoff: 1250, gain: 0.09 },
+    const bubbles: Array<{
+      delay: number;
+      startHz: number;
+      endHz: number;
+      cutoff: number;
+      gain: number;
+      pan: number;
+    }> = [
+      { delay: 0, startHz: 240, endHz: 360, cutoff: 1050, gain: 0.11, pan: -0.35 },
+      { delay: 0.045, startHz: 300, endHz: 430, cutoff: 1150, gain: 0.1, pan: 0.0 },
+      { delay: 0.09, startHz: 350, endHz: 490, cutoff: 1250, gain: 0.09, pan: 0.35 },
     ];
     for (let i = 0; i < steps; i++) {
       const b = bubbles[i];
@@ -523,74 +722,77 @@ class CandySoundEngine {
         this.sfxGain,
         true,
         b.cutoff,
-        b.endHz
+        b.endHz,
+        b.pan
       );
     }
   }
 
   public playMatch(cascadeDepth: number): void {
-    if (this.muted) return;
+    if (!this.canPlaySfx()) return;
     const ctx = this.ensureContext();
     if (!ctx || !this.sfxGain) return;
     const now = ctx.currentTime;
     const scale = [392.0, 440.0, 523.25, 587.33, 659.25, 783.99, 880.0, 1046.5];
     const base = scale[Math.min(cascadeDepth - 1, scale.length - 1)];
 
-    this.playRoundedTone(base, now, 0.16, 0.24, this.sfxGain, true, 1900, base * 1.12);
-    this.playRoundedTone(base * 1.25, now + 0.04, 0.18, 0.18, this.sfxGain, true, 2000);
-    this.playRoundedTone(base * 1.5, now + 0.08, 0.22, 0.14, this.sfxGain, true, 2200);
+    this.playRoundedTone(base, now, 0.16, 0.24, this.sfxGain, true, 1900, base * 1.12, -0.32);
+    this.playRoundedTone(base * 1.25, now + 0.04, 0.18, 0.18, this.sfxGain, true, 2000, undefined, 0);
+    this.playRoundedTone(base * 1.5, now + 0.08, 0.22, 0.14, this.sfxGain, true, 2200, undefined, 0.32);
   }
 
   public playStriped(): void {
-    if (this.muted) return;
+    if (!this.canPlaySfx()) return;
     const ctx = this.ensureContext();
     if (!ctx || !this.sfxGain) return;
     const now = ctx.currentTime;
     this.playMagicSwoosh(now, 0.34, 420, 1900, 0.35);
-    this.playRoundedTone(150, now, 0.28, 0.28, this.sfxGain, true, 480, 58);
-    this.playRoundedTone(523.25, now + 0.03, 0.24, 0.16, this.sfxGain, true, 1800, 880);
+    this.playRoundedTone(150, now, 0.28, 0.28, this.sfxGain, true, 480, 58, -0.25);
+    this.playRoundedTone(523.25, now + 0.03, 0.24, 0.16, this.sfxGain, true, 1800, 880, 0.25);
   }
 
   public playWrapped(): void {
-    if (this.muted) return;
+    if (!this.canPlaySfx()) return;
     const ctx = this.ensureContext();
     if (!ctx || !this.sfxGain) return;
     const now = ctx.currentTime;
-    this.playRoundedTone(128, now, 0.44, 0.55, this.sfxGain, true, 260, 34);
-    this.playRoundedTone(195, now, 0.24, 0.3, this.sfxGain, true, 420, 62);
+    this.playRoundedTone(128, now, 0.44, 0.55, this.sfxGain, true, 260, 34, 0);
+    this.playRoundedTone(195, now, 0.24, 0.3, this.sfxGain, true, 420, 62, 0.22);
     this.playMagicSwoosh(now + 0.02, 0.38, 1200, 240, 0.32);
   }
 
   public playColorBomb(): void {
-    if (this.muted) return;
+    if (!this.canPlaySfx()) return;
     const ctx = this.ensureContext();
     if (!ctx || !this.sfxGain) return;
     const now = ctx.currentTime;
-    this.playRoundedTone(115, now, 0.48, 0.45, this.sfxGain, true, 280, 38);
+    this.playRoundedTone(115, now, 0.48, 0.45, this.sfxGain, true, 280, 38, 0);
     this.playMagicSwoosh(now, 0.45, 350, 2200, 0.34);
     const notes = [523.25, 659.25, 783.99, 987.77, 1174.66, 1567.98];
     notes.forEach((f, idx) => {
-      this.playRoundedTone(f, now + idx * 0.048, 0.26, 0.18, this.sfxGain!, true, 2400);
+      const pan = -0.45 + (idx / (notes.length - 1)) * 0.9;
+      this.playRoundedTone(f, now + idx * 0.048, 0.26, 0.18, this.sfxGain!, true, 2400, undefined, pan);
     });
   }
 
   public playHammer(): void {
-    if (this.muted) return;
+    if (!this.canPlaySfx()) return;
     const ctx = this.ensureContext();
     if (!ctx || !this.sfxGain) return;
     const now = ctx.currentTime;
-    this.playRoundedTone(165, now, 0.26, 0.42, this.sfxGain, true, 380, 48);
+    this.playRoundedTone(165, now, 0.26, 0.42, this.sfxGain, true, 380, 48, 0);
     this.playMagicSwoosh(now, 0.22, 900, 300, 0.24);
   }
 
   public playFanfare(): void {
-    if (this.muted) return;
+    if (!this.canPlaySfx()) return;
     const ctx = this.ensureContext();
     if (!ctx || !this.sfxGain) return;
     const now = ctx.currentTime;
     const fanfare = [523.25, 659.25, 783.99, 1046.5];
     fanfare.forEach((f, i) => {
-      this.playRoundedTone(f, now + i * 0.09, 0.42, 0.24, this.sfxGain!, true, 2400);
+      const pan = -0.4 + (i / (fanfare.length - 1)) * 0.8;
+      this.playRoundedTone(f, now + i * 0.09, 0.42, 0.24, this.sfxGain!, true, 2400, undefined, pan);
     });
   }
 
@@ -599,18 +801,18 @@ class CandySoundEngine {
   }
 
   public playLose(): void {
-    if (this.muted) return;
+    if (!this.canPlaySfx()) return;
     const ctx = this.ensureContext();
     if (!ctx || !this.sfxGain) return;
     const now = ctx.currentTime;
     const notes = [392.0, 349.23, 329.63, 261.63];
     notes.forEach((f, i) => {
-      this.playRoundedTone(f, now + i * 0.16, 0.34, 0.2, this.sfxGain!, true, 1200);
+      this.playRoundedTone(f, now + i * 0.16, 0.34, 0.2, this.sfxGain!, true, 1200, undefined, 0);
     });
   }
 
   private playVoiceClip(clip: VoiceClipKey): void {
-    if (this.muted) return;
+    if (!this.canPlaySfx()) return;
     const ctx = this.ensureContext();
 
     if (ctx && this.voiceGain && this.decodedVoices[clip]) {
@@ -639,7 +841,7 @@ class CandySoundEngine {
     if (typeof window !== 'undefined') {
       try {
         const audio = new Audio(VOICE_CLIP_URLS[clip]);
-        audio.volume = 0.85;
+        audio.volume = 0.85 * this.volumeScale;
         audio.play().catch(() => {});
       } catch {
         // ignore
@@ -649,12 +851,12 @@ class CandySoundEngine {
 
   /**
    * Smart Cooldown & Strict Milestone Rule for Voice-Overs:
-   * - Enforces 2600ms global cooldown (1500ms for major Sugar Crush! milestones)
-   * - Enforces 6000ms same-phrase cooldown so voices NEVER spam or repeat back-to-back
+   * - Enforces 3000ms global cooldown (1800ms for major Sugar Crush! milestones)
+   * - Enforces 6500ms same-phrase cooldown so voices NEVER spam or repeat back-to-back
    * - Plays pre-decoded cleaned voice MP3 clips with warm Web Audio harmonic chord backing
    */
   public playPraise(word: PraiseWord): boolean {
-    if (this.muted) return false;
+    if (!this.canPlaySfx()) return false;
 
     const nowMs = Date.now();
     const isMajorMilestone = word === 'Sugar Crush!';
@@ -690,7 +892,8 @@ class CandySoundEngine {
             ? [587.33, 739.99, 880.0, 1174.66]
             : [523.25, 659.25, 783.99, 1046.5];
         chord.forEach((f, i) => {
-          this.playRoundedTone(f, now + i * 0.045, 0.32, 0.16, this.sfxGain!, true, 2200);
+          const pan = -0.35 + (i / (chord.length - 1)) * 0.7;
+          this.playRoundedTone(f, now + i * 0.045, 0.32, 0.16, this.sfxGain!, true, 2200, undefined, pan);
         });
       }
     }

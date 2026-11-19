@@ -2,15 +2,13 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Hammer,
   Map as MapIcon,
-  Music,
   Pause,
   Play,
   PlusCircle,
   RotateCcw,
+  Settings,
   Shuffle,
   Star,
-  Volume2,
-  VolumeX,
 } from 'lucide-react';
 import { soundEngine } from '../audio/soundEngine';
 import { PlayerInventory } from '../game/dailyRewards';
@@ -44,12 +42,10 @@ import { VfxCanvas, VfxCanvasHandle } from './VfxCanvas';
 
 interface GameBoardProps {
   level: LevelConfig;
-  muted: boolean;
-  musicPaused: boolean;
+  backgroundMusicEnabled: boolean;
   inventory: PlayerInventory;
   onConsumeBooster: (type: keyof PlayerInventory) => boolean;
-  onToggleMute: () => void;
-  onToggleMusicPause: () => void;
+  onOpenSettings: () => void;
   onLevelComplete: (levelId: number, score: number, stars: number) => void;
   onNextLevel: () => void;
   onBackToMap: () => void;
@@ -59,12 +55,10 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const GameBoard: React.FC<GameBoardProps> = ({
   level,
-  muted,
-  musicPaused,
+  backgroundMusicEnabled,
   inventory,
   onConsumeBooster,
-  onToggleMute,
-  onToggleMusicPause,
+  onOpenSettings,
   onLevelComplete,
   onNextLevel,
   onBackToMap,
@@ -139,10 +133,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   useEffect(() => {
     if (modalState === 'PAUSED') {
       soundEngine.pauseMusic();
-    } else if (modalState === 'NONE' && !musicPaused && !muted) {
+    } else if (modalState === 'NONE' && backgroundMusicEnabled) {
       soundEngine.resumeMusic();
     }
-  }, [modalState, musicPaused, muted]);
+  }, [modalState, backgroundMusicEnabled]);
 
   // Escape key pauses/resumes gameplay
   useEffect(() => {
@@ -207,6 +201,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   }, []);
 
   const playSpecialSounds = (specials: SpecialType[]) => {
+    soundEngine.vibrate([24, 30, 36]);
     if (specials.includes('color-bomb')) {
       soundEngine.playColorBomb();
     } else if (specials.includes('wrapped')) {
@@ -242,6 +237,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       if (orderMet && scoreMet) {
         // Major Level Milestone: Sugar Crush Finale!
         setIsBusy(true);
+        soundEngine.vibrate([30, 40, 30, 40, 60]);
         showPraise('Sugar Crush!');
         if (remainingMoves > 0) {
           let working = cloneGrid(currentGrid);
@@ -467,6 +463,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
         cascade += 1;
         soundEngine.playMatch(cascade);
+        soundEngine.vibrate(cascade >= 2 ? [16, 22, 20] : 16);
 
         const initialDestroyPositions: Position[] = [];
         const skipSpawnKeys = new Set<string>();
@@ -582,6 +579,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       setHintPair(null);
       setIsBusy(true);
       soundEngine.playSwap();
+      soundEngine.vibrate(10);
 
       vfxRef.current?.emitEvents([
         {
@@ -610,6 +608,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       if (!specialCombo && clusters.length === 0) {
         // Invalid swap: smoothly glide back to original positions
         soundEngine.playInvalidSwap();
+        soundEngine.vibrate([12, 28, 12]);
         setSwappingPair(null);
         await sleep(165);
         if (!isMountedRef.current || myRun !== runIdRef.current) return;
@@ -647,6 +646,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       setIsBusy(true);
       setSelected(null);
       soundEngine.playHammer();
+      soundEngine.vibrate([24, 30, 36]);
       triggerShake();
 
       const working = cloneGrid(grid);
@@ -868,29 +868,16 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             </div>
           </div>
 
-          {/* Right: Music Play/Pause, Mute & Pause */}
+          {/* Right: Settings & Pause */}
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
-              onClick={onToggleMusicPause}
-              aria-label={musicPaused ? 'Play gameplay music' : 'Pause gameplay music'}
-              title={musicPaused ? 'Play Music' : 'Pause Music'}
-              className={`w-10 h-10 sm:w-11 sm:h-11 rounded-full shadow flex items-center justify-center cursor-pointer transition-transform active:scale-95 ${
-                musicPaused
-                  ? 'bg-white/60 hover:bg-white/80 text-slate-500'
-                  : 'bg-white/90 hover:bg-white text-[#b3125d]'
-              }`}
+              onClick={onOpenSettings}
+              aria-label="Open Settings"
+              title="Settings"
+              className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-gradient-to-b from-[#3b82f6] to-[#1d4ed8] hover:from-[#2563eb] hover:to-[#1e40af] text-white border-2 border-[#93c5fd] shadow flex items-center justify-center cursor-pointer transition-transform active:scale-95"
             >
-              {musicPaused ? <Play className="w-4 h-4 fill-current" /> : <Music className="w-5 h-5" />}
-            </button>
-            <button
-              type="button"
-              onClick={onToggleMute}
-              aria-label={muted ? 'Unmute audio' : 'Mute audio'}
-              title={muted ? 'Unmute Audio' : 'Mute Audio'}
-              className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-white/90 hover:bg-white text-[#b3125d] shadow flex items-center justify-center cursor-pointer transition-transform active:scale-95"
-            >
-              {muted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+              <Settings className="w-5 h-5" />
             </button>
             <button
               type="button"
@@ -1131,6 +1118,14 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   >
                     <Play className="w-5 h-5 fill-white" />
                     <span>Resume</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onOpenSettings}
+                    className="candy-btn-blue w-full py-2.5 rounded-full font-display font-semibold text-lg text-white flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Settings className="w-5 h-5" />
+                    <span>Settings</span>
                   </button>
                   <button
                     type="button"
