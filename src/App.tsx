@@ -89,7 +89,7 @@ export default function App() {
     const onVisibilityChange = () => {
       if (document.hidden) {
         soundEngine.pauseMusic();
-      } else if (settings.backgroundMusic && settings.volume > 0) {
+      } else if (settings.backgroundMusic) {
         soundEngine.resumeMusic();
       }
     };
@@ -97,7 +97,7 @@ export default function App() {
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [settings.backgroundMusic, settings.volume]);
+  }, [settings.backgroundMusic]);
 
   useEffect(() => {
     soundEngine.preloadVoiceClips();
@@ -236,7 +236,7 @@ export default function App() {
       {screen === 'PLAYING' && (
         <GameBoard
           level={activeLevel}
-          backgroundMusicEnabled={settings.backgroundMusic && settings.volume > 0}
+          backgroundMusicEnabled={settings.backgroundMusic}
           inventory={dailyState.inventory}
           onConsumeBooster={handleConsumeBooster}
           onOpenSettings={handleOpenSettings}
@@ -263,39 +263,12 @@ export default function App() {
           settings={settings}
           stereoCapability={stereoCapability}
           onUpdateSettings={handleUpdateSettings}
-          onTestGameSound={() => {
+          onGameSoundSliderRelease={() => {
             soundEngine.unlock();
-            if (!settings.gameSounds || settings.volume === 0) {
-              const nextSettings: GameSettings = {
-                ...settings,
-                gameSounds: true,
-                volume: settings.volume === 0 ? 75 : settings.volume,
-              };
-              setSettings(nextSettings);
-              soundEngine.applySettings(nextSettings, stereoCapability.supported);
-            }
-            soundEngine.playMatch(3);
-            soundEngine.vibrate(15);
-          }}
-          onTestBackgroundMusic={() => {
-            soundEngine.unlock();
-            if (!settings.backgroundMusic || settings.volume === 0) {
-              const nextSettings: GameSettings = {
-                ...settings,
-                backgroundMusic: true,
-                volume: settings.volume === 0 ? 75 : settings.volume,
-              };
-              setSettings(nextSettings);
-              soundEngine.applySettings(nextSettings, stereoCapability.supported);
-            }
-            return soundEngine.previewBackgroundMusic();
+            soundEngine.playTap();
           }}
           onClose={() => {
             soundEngine.playButton();
-            const expectedTrack = screen === 'PLAYING' ? 'gameplay' : 'lobby';
-            if (soundEngine.getCurrentTrack() !== expectedTrack) {
-              soundEngine.setMusicTrack(expectedTrack);
-            }
             setShowSettingsModal(false);
           }}
         />

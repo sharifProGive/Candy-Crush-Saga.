@@ -1,0 +1,8 @@
+{
+  "appId": "com.candycrush.match3saga",
+  "appName": "Candy Crush Saga",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}

@@ -1,7 +1,8 @@
 export interface GameSettings {
   gameSounds: boolean;
+  sfxVolume: number; // 0 to 100 (independent volume for game sounds & voices)
   backgroundMusic: boolean;
-  volume: number; // 0 to 100
+  musicVolume: number; // 0 to 100 (independent volume for background music)
   spatialAudio: boolean;
   vibration: boolean;
 }
@@ -16,11 +17,19 @@ const SETTINGS_STORAGE_KEY = 'candy_crush_saga_settings_v1';
 
 export const DEFAULT_SETTINGS: GameSettings = {
   gameSounds: true,
+  sfxVolume: 85,
   backgroundMusic: true,
-  volume: 85,
+  musicVolume: 85,
   spatialAudio: true,
   vibration: true,
 };
+
+function clampVolume(val: unknown, fallback: number): number {
+  if (typeof val === 'number' && Number.isFinite(val)) {
+    return Math.max(0, Math.min(100, Math.round(val)));
+  }
+  return fallback;
+}
 
 export function detectStereoAudioCapability(): StereoCapability {
   if (typeof window === 'undefined') {
@@ -81,20 +90,18 @@ export function loadGameSettings(stereoSupported: boolean): GameSettings {
         spatialAudio: stereoSupported ? true : false,
       };
     }
-    const parsed = JSON.parse(raw) as Partial<GameSettings>;
-    const volume =
-      typeof parsed.volume === 'number' && Number.isFinite(parsed.volume)
-        ? Math.max(0, Math.min(100, Math.round(parsed.volume)))
-        : DEFAULT_SETTINGS.volume;
+    const parsed = JSON.parse(raw) as Partial<GameSettings> & { volume?: number };
+    const legacyVolume = clampVolume(parsed.volume, DEFAULT_SETTINGS.sfxVolume);
 
     return {
       gameSounds:
         typeof parsed.gameSounds === 'boolean' ? parsed.gameSounds : DEFAULT_SETTINGS.gameSounds,
+      sfxVolume: clampVolume(parsed.sfxVolume, legacyVolume),
       backgroundMusic:
         typeof parsed.backgroundMusic === 'boolean'
           ? parsed.backgroundMusic
           : DEFAULT_SETTINGS.backgroundMusic,
-      volume,
+      musicVolume: clampVolume(parsed.musicVolume, legacyVolume),
       spatialAudio: stereoSupported
         ? typeof parsed.spatialAudio === 'boolean'
           ? parsed.spatialAudio

@@ -17,11 +17,52 @@
     overscroll-behavior: none;
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 }
 
 .font-display {
   font-family: var(--font-display);
+}
+
+.font-settings {
+  font-family: 'Nunito', 'Baloo 2', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+.font-settings-heading {
+  font-family: 'Baloo 2', 'Nunito', 'Fredoka', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+.settings-title-gradient {
+  background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 52%, #0c3584 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 2px rgba(12, 53, 132, 0.24));
+}
+
+.settings-modal-frame {
+  background: linear-gradient(135deg, #38bdf8 0%, #2563eb 50%, #1d4ed8 100%);
+  box-shadow: 0 24px 60px rgba(10, 30, 74, 0.45), 0 8px 20px rgba(29, 78, 216, 0.25);
+}
+
+.settings-modal-surface {
+  background: linear-gradient(180deg, #f4f9ff 0%, #e6f0ff 100%);
+}
+
+.settings-toggle-gloss {
+  box-shadow:
+    inset 0 2px 3px rgba(255, 255, 255, 0.45),
+    inset 0 -2px 4px rgba(15, 23, 42, 0.2),
+    0 2px 6px rgba(29, 78, 216, 0.25);
 }
 
 /* Peppermint candy stripe pattern for HUD header */
@@ -96,46 +137,78 @@
     0 4px 8px rgba(12, 94, 33, 0.25);
 }
 
-/* Bright green draggable volume slider bar & handle */
+/* Clean, spacious mobile-friendly volume slider bar & large white knob with crisp green border */
 .candy-volume-slider {
   -webkit-appearance: none;
   appearance: none;
-  height: 12px;
+  height: 14px;
   border-radius: 9999px;
   outline: none;
+  touch-action: none;
+  cursor: pointer;
+  box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.16);
 }
 
 .candy-volume-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 24px;
-  height: 24px;
+  width: 38px;
+  height: 38px;
   border-radius: 9999px;
-  background: linear-gradient(180deg, #4ade80 0%, #22c55e 55%, #16a34a 100%);
-  border: 3px solid #ffffff;
-  box-shadow: 0 2px 8px rgba(22, 163, 74, 0.55);
-  cursor: pointer;
-  transition: transform 120ms ease, box-shadow 120ms ease;
+  background: #ffffff;
+  border: 4px solid #16a34a;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.28), 0 1px 3px rgba(22, 163, 74, 0.28);
+  cursor: grab;
+  transition: transform 130ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 130ms ease, border-color 130ms ease;
 }
 
-.candy-volume-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.1);
-  box-shadow: 0 3px 10px rgba(22, 163, 74, 0.7);
+.candy-volume-slider:not(:disabled)::-webkit-slider-thumb:hover {
+  transform: scale(1.06);
+  box-shadow: 0 5px 15px rgba(22, 163, 74, 0.42), 0 2px 6px rgba(15, 23, 42, 0.25);
 }
 
-.candy-volume-slider::-webkit-slider-thumb:active {
-  transform: scale(1.16);
+.candy-volume-slider:not(:disabled)::-webkit-slider-thumb:active {
+  transform: scale(1.14);
+  cursor: grabbing;
+  border-color: #15803d;
+  box-shadow: 0 6px 18px rgba(22, 163, 74, 0.5), 0 2px 6px rgba(15, 23, 42, 0.3);
 }
 
 .candy-volume-slider::-moz-range-thumb {
-  width: 24px;
-  height: 24px;
+  width: 38px;
+  height: 38px;
+  box-sizing: border-box;
   border-radius: 9999px;
-  background: linear-gradient(180deg, #4ade80 0%, #22c55e 55%, #16a34a 100%);
-  border: 3px solid #ffffff;
-  box-shadow: 0 2px 8px rgba(22, 163, 74, 0.55);
-  cursor: pointer;
-  transition: transform 120ms ease, box-shadow 120ms ease;
+  background: #ffffff;
+  border: 4px solid #16a34a;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.28), 0 1px 3px rgba(22, 163, 74, 0.28);
+  cursor: grab;
+  transition: transform 130ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 130ms ease, border-color 130ms ease;
+}
+
+.candy-volume-slider:not(:disabled)::-moz-range-thumb:active {
+  transform: scale(1.14);
+  cursor: grabbing;
+  border-color: #15803d;
+  box-shadow: 0 6px 18px rgba(22, 163, 74, 0.5), 0 2px 6px rgba(15, 23, 42, 0.3);
+}
+
+.candy-volume-slider:disabled {
+  cursor: not-allowed;
+}
+
+.candy-volume-slider:disabled::-webkit-slider-thumb {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  box-shadow: 0 3px 7px rgba(71, 85, 105, 0.26);
+  cursor: not-allowed;
+}
+
+.candy-volume-slider:disabled::-moz-range-thumb {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  box-shadow: 0 3px 7px rgba(71, 85, 105, 0.26);
+  cursor: not-allowed;
 }
 
 /* Text outline utility for juicy candy numbers */

@@ -74,14 +74,15 @@ class CandySoundEngine {
   private noiseBuffer: AudioBuffer | null = null;
   private muted = false;
 
-  // User Settings State
+  // User Settings State (Game Sounds & Background Music volumes are strictly independent)
   private gameSoundsEnabled = true;
+  private sfxVolumeScale = 0.85;
   private backgroundMusicEnabled = true;
-  private volumeScale = 0.85;
+  private musicVolumeScale = 0.85;
   private spatialAudioEnabled = true;
   private vibrationEnabled = true;
 
-  // Custom MP3 Background Tracks (File 1: Home/Lobby, File 2: Gameplay)
+  // Custom MP3 Background Tracks (File 1: Home/Lobby, File 2: Gameplay — played raw without added echo/reverb)
   private tracks: Partial<Record<Exclude<MusicTrack, 'none'>, HTMLAudioElement>> = {};
   private desiredTrack: MusicTrack = 'none';
   private musicPaused = false;
@@ -102,11 +103,11 @@ class CandySoundEngine {
 
   private getEffectiveBgmVolume(): number {
     if (this.muted || !this.backgroundMusicEnabled) return 0;
-    return TARGET_BGM_VOLUME * this.volumeScale;
+    return TARGET_BGM_VOLUME * this.musicVolumeScale;
   }
 
   private canPlaySfx(): boolean {
-    return !this.muted && this.gameSoundsEnabled && this.volumeScale > 0;
+    return !this.muted && this.gameSoundsEnabled && this.sfxVolumeScale > 0;
   }
 
   private ensureContext(): AudioContext | null {
@@ -127,20 +128,21 @@ class CandySoundEngine {
       }
 
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.value = this.muted ? 0 : 0.9 * this.volumeScale;
+      this.masterGain.gain.value = this.muted ? 0 : 0.9;
       this.masterGain.connect(this.ctx.destination);
 
       this.sfxGain = this.ctx.createGain();
-      this.sfxGain.gain.value = this.gameSoundsEnabled ? 0.8 : 0;
+      this.sfxGain.gain.value = this.gameSoundsEnabled ? 0.8 * this.sfxVolumeScale : 0;
       this.sfxGain.connect(this.masterGain);
 
       this.voiceGain = this.ctx.createGain();
-      this.voiceGain.gain.value = this.gameSoundsEnabled ? 1.0 : 0;
+      this.voiceGain.gain.value = this.gameSoundsEnabled ? 1.0 * this.sfxVolumeScale : 0;
       this.voiceGain.connect(this.masterGain);
 
-      // Game-Only Dual-Speaker / Spatial Warm Echo Bus (lowpassed so echoes are soft & dreamy)
+      // Game-Sounds-Only Dual-Speaker / Spatial Warm Echo Bus (never touches background music)
       this.echoInput = this.ctx.createGain();
-      this.echoInput.gain.value = this.spatialAudioEnabled ? 0.38 : 0;
+      this.echoInput.gain.value =
+        this.gameSoundsEnabled && this.spatialAudioEnabled ? 0.38 * this.sfxVolumeScale : 0;
 
       const delayLeft = this.ctx.createDelay(1.0);
       delayLeft.delayTime.value = 0.125;
@@ -314,8 +316,7 @@ class CandySoundEngine {
         this.desiredTrack !== 'none' &&
         !this.musicPaused &&
         !this.muted &&
-        this.backgroundMusicEnabled &&
-        this.volumeScale > 0
+        this.backgroundMusicEnabled
       ) {
         this.playTrackElement(this.desiredTrack);
       }
@@ -334,11 +335,14 @@ class CandySoundEngine {
 
     const targetVol = this.getEffectiveBgmVolume();
     audio.muted = this.muted || !this.backgroundMusicEnabled;
-    if (targetVol <= 0) {
-      audio.volume = 0;
+
+    if (!audio.paused) {
+      this.clearFade(key);
+      audio.volume = targetVol;
       return;
     }
 
+    audio.volume = targetVol;
     const playPromise = audio.play();
     if (playPromise !== undefined) {
       playPromise
@@ -349,7 +353,7 @@ class CandySoundEngine {
             !this.muted &&
             this.backgroundMusicEnabled
           ) {
-            this.fadeAudioTo(key, this.getEffectiveBgmVolume(), 420);
+            audio.volume = this.getEffectiveBgmVolume();
           }
         })
         .catch(() => {
@@ -377,40 +381,46 @@ class CandySoundEngine {
 
   public applySettings(settings: GameSettings, stereoSupported: boolean): void {
     this.gameSoundsEnabled = settings.gameSounds;
+    this.sfxVolumeScale = Math.max(0, Math.min(1, settings.sfxVolume / 100));
     this.backgroundMusicEnabled = settings.backgroundMusic;
-    this.volumeScale = Math.max(0, Math.min(1, settings.volume / 100));
+    this.musicVolumeScale = Math.max(0, Math.min(1, settings.musicVolume / 100));
     this.spatialAudioEnabled = stereoSupported && settings.spatialAudio;
     this.vibrationEnabled = settings.vibration;
 
+    // 1. Apply Game Sounds volume & spatial state independently
     if (this.ctx) {
       const now = this.ctx.currentTime;
       if (this.masterGain) {
-        this.masterGain.gain.setTargetAtTime(
-          this.muted ? 0 : 0.9 * this.volumeScale,
-          now,
-          0.025
-        );
+        this.masterGain.gain.setTargetAtTime(this.muted ? 0 : 0.9, now, 0.02);
       }
       if (this.sfxGain) {
-        this.sfxGain.gain.setTargetAtTime(this.gameSoundsEnabled ? 0.8 : 0, now, 0.025);
+        this.sfxGain.gain.setTargetAtTime(
+          this.gameSoundsEnabled ? 0.8 * this.sfxVolumeScale : 0,
+          now,
+          0.02
+        );
       }
       if (this.voiceGain) {
-        this.voiceGain.gain.setTargetAtTime(this.gameSoundsEnabled ? 1.0 : 0, now, 0.025);
+        this.voiceGain.gain.setTargetAtTime(
+          this.gameSoundsEnabled ? 1.0 * this.sfxVolumeScale : 0,
+          now,
+          0.02
+        );
       }
       if (this.echoInput) {
         this.echoInput.gain.setTargetAtTime(
-          this.spatialAudioEnabled ? 0.38 : 0,
+          this.gameSoundsEnabled && this.spatialAudioEnabled ? 0.38 * this.sfxVolumeScale : 0,
           now,
-          0.035
+          0.03
         );
       }
       if (this.echoPanLeft && this.echoPanRight) {
-        this.echoPanLeft.pan.setTargetAtTime(this.spatialAudioEnabled ? -0.78 : 0, now, 0.04);
-        this.echoPanRight.pan.setTargetAtTime(this.spatialAudioEnabled ? 0.78 : 0, now, 0.04);
+        this.echoPanLeft.pan.setTargetAtTime(this.spatialAudioEnabled ? -0.78 : 0, now, 0.035);
+        this.echoPanRight.pan.setTargetAtTime(this.spatialAudioEnabled ? 0.78 : 0, now, 0.035);
       }
     }
 
-    if ((!this.gameSoundsEnabled || this.volumeScale <= 0) && this.activeVoiceSource) {
+    if ((!this.gameSoundsEnabled || this.sfxVolumeScale <= 0) && this.activeVoiceSource) {
       try {
         this.activeVoiceSource.stop();
       } catch {
@@ -419,6 +429,7 @@ class CandySoundEngine {
       this.activeVoiceSource = null;
     }
 
+    // 2. Apply Background Music toggle & live volume independently (raw playback, no added effects)
     const bgmVol = this.getEffectiveBgmVolume();
     (['lobby', 'gameplay'] as const).forEach((key) => {
       const audio = this.tracks[key];
@@ -426,10 +437,11 @@ class CandySoundEngine {
       audio.muted = this.muted || !this.backgroundMusicEnabled;
       if (key === this.desiredTrack) {
         this.clearFade(key);
-        if (!this.backgroundMusicEnabled || this.muted || bgmVol <= 0) {
+        if (!this.backgroundMusicEnabled || this.muted) {
           audio.volume = 0;
           if (!audio.paused) audio.pause();
         } else if (!this.musicPaused) {
+          // Keep audio live at exact bgmVol (even 0) so dragging slider never pauses or mutes toggle
           audio.volume = bgmVol;
           if (audio.paused) {
             this.playTrackElement(key);
@@ -443,7 +455,6 @@ class CandySoundEngine {
       this.backgroundMusicEnabled &&
       !this.muted &&
       !this.musicPaused &&
-      bgmVol > 0 &&
       !this.tracks[this.desiredTrack]
     ) {
       this.playTrackElement(this.desiredTrack);
@@ -453,11 +464,7 @@ class CandySoundEngine {
   public setMuted(mute: boolean): void {
     this.muted = mute;
     if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setTargetAtTime(
-        mute ? 0 : 0.9 * this.volumeScale,
-        this.ctx.currentTime,
-        0.03
-      );
+      this.masterGain.gain.setTargetAtTime(mute ? 0 : 0.9, this.ctx.currentTime, 0.03);
     }
 
     (['lobby', 'gameplay'] as const).forEach((key) => {
@@ -476,19 +483,14 @@ class CandySoundEngine {
       this.activeVoiceSource = null;
     }
 
-    if (
-      !mute &&
-      this.backgroundMusicEnabled &&
-      this.volumeScale > 0 &&
-      this.desiredTrack !== 'none' &&
-      !this.musicPaused
-    ) {
+    if (!mute && this.backgroundMusicEnabled && this.desiredTrack !== 'none' && !this.musicPaused) {
       this.playTrackElement(this.desiredTrack);
     }
   }
 
   /**
    * Smoothly switches between 'lobby' (File 1) and 'gameplay' (File 2) custom MP3 tracks.
+   * Tracks play directly without any added echo/reverb/spatial processing.
    */
   public setMusicTrack(track: MusicTrack): void {
     const previous = this.desiredTrack;
@@ -519,11 +521,11 @@ class CandySoundEngine {
       targetAudio.currentTime = 0;
     }
 
-    if (!this.muted && this.backgroundMusicEnabled && this.volumeScale > 0) {
+    if (!this.muted && this.backgroundMusicEnabled) {
       if (targetAudio.paused) {
         this.playTrackElement(track);
       } else {
-        this.fadeAudioTo(track, this.getEffectiveBgmVolume(), 320);
+        this.fadeAudioTo(track, this.getEffectiveBgmVolume(), 240);
       }
     }
   }
@@ -542,12 +544,7 @@ class CandySoundEngine {
 
   public resumeMusic(): void {
     this.musicPaused = false;
-    if (
-      this.desiredTrack === 'none' ||
-      this.muted ||
-      !this.backgroundMusicEnabled ||
-      this.volumeScale <= 0
-    ) {
+    if (this.desiredTrack === 'none' || this.muted || !this.backgroundMusicEnabled) {
       return;
     }
     this.playTrackElement(this.desiredTrack);
@@ -565,18 +562,6 @@ class CandySoundEngine {
         audio.volume = 0;
       }
     });
-  }
-
-  public getCurrentTrack(): MusicTrack {
-    return this.desiredTrack;
-  }
-
-  public previewBackgroundMusic(): Exclude<MusicTrack, 'none'> {
-    this.unlock();
-    const nextTrack: Exclude<MusicTrack, 'none'> =
-      this.desiredTrack === 'lobby' ? 'gameplay' : 'lobby';
-    this.setMusicTrack(nextTrack);
-    return nextTrack;
   }
 
   private playRoundedTone(
@@ -841,7 +826,7 @@ class CandySoundEngine {
     if (typeof window !== 'undefined') {
       try {
         const audio = new Audio(VOICE_CLIP_URLS[clip]);
-        audio.volume = 0.85 * this.volumeScale;
+        audio.volume = 0.85 * this.sfxVolumeScale;
         audio.play().catch(() => {});
       } catch {
         // ignore
