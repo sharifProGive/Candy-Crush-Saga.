@@ -35,7 +35,7 @@ export interface LevelConfig {
   description: string;
 }
 
-export type GameScreen = 'TITLE_MENU' | 'LEVEL_MAP' | 'PLAYING';
+export type GameScreen = 'STARTUP' | 'TITLE_MENU' | 'LEVEL_MAP' | 'PLAYING';
 
 export type PlayModalState = 'NONE' | 'PAUSED' | 'VICTORY' | 'GAME_OVER';
 

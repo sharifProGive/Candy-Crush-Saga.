@@ -235,6 +235,74 @@ class CandySoundEngine {
     });
   }
 
+  public preloadAllAssets(onProgress?: (loaded: number, total: number) => void): Promise<void> {
+    if (typeof window === 'undefined') return Promise.resolve();
+    this.voicePreloadStarted = true;
+
+    const voiceKeys = Object.keys(VOICE_CLIP_URLS) as VoiceClipKey[];
+    const trackKeys: Array<Exclude<MusicTrack, 'none'>> = ['lobby', 'gameplay'];
+    const total = voiceKeys.length + trackKeys.length;
+    let loaded = 0;
+
+    const tick = () => {
+      loaded += 1;
+      onProgress?.(loaded, total);
+    };
+
+    const voicePromises = voiceKeys.map((key) => {
+      if (this.rawVoiceBytes[key]) {
+        tick();
+        return Promise.resolve();
+      }
+      return fetch(VOICE_CLIP_URLS[key])
+        .then((res) => (res.ok ? res.arrayBuffer() : null))
+        .then((buf) => {
+          if (buf) {
+            this.rawVoiceBytes[key] = buf;
+            if (this.ctx && !this.decodedVoices[key]) {
+              this.decodeSingleVoice(key, buf);
+            }
+          }
+        })
+        .catch(() => {})
+        .finally(tick);
+    });
+
+    const trackPromises = trackKeys.map(
+      (key) =>
+        new Promise<void>((resolve) => {
+          const audio = this.getOrCreateAudio(key);
+          if (!audio || audio.readyState >= 1) {
+            tick();
+            resolve();
+            return;
+          }
+          let done = false;
+          const finish = () => {
+            if (done) return;
+            done = true;
+            audio.removeEventListener('loadedmetadata', finish);
+            audio.removeEventListener('canplay', finish);
+            audio.removeEventListener('error', finish);
+            window.clearTimeout(timer);
+            tick();
+            resolve();
+          };
+          const timer = window.setTimeout(finish, 1800);
+          audio.addEventListener('loadedmetadata', finish, { once: true });
+          audio.addEventListener('canplay', finish, { once: true });
+          audio.addEventListener('error', finish, { once: true });
+          try {
+            audio.load();
+          } catch {
+            finish();
+          }
+        })
+    );
+
+    return Promise.all([...voicePromises, ...trackPromises]).then(() => {});
+  }
+
   private decodeAllVoices(): void {
     if (!this.ctx) return;
     this.voiceDecodeStarted = true;
@@ -660,6 +728,16 @@ class CandySoundEngine {
     const now = ctx.currentTime;
     this.playRoundedTone(440, now, 0.1, 0.18, this.sfxGain, true, 1400, 520, -0.2);
     this.playRoundedTone(587.33, now + 0.045, 0.12, 0.16, this.sfxGain, true, 1500, undefined, 0.2);
+  }
+
+  public playStartupPop(): void {
+    if (!this.canPlaySfx()) return;
+    const ctx = this.ensureContext();
+    if (!ctx || !this.sfxGain) return;
+    const now = ctx.currentTime;
+    this.playRoundedTone(390, now, 0.09, 0.24, this.sfxGain, true, 1600, 680, -0.2);
+    this.playRoundedTone(659.25, now + 0.05, 0.14, 0.22, this.sfxGain, true, 2000, 880, 0.22);
+    this.playRoundedTone(1046.5, now + 0.1, 0.22, 0.14, this.sfxGain, true, 2400, undefined, 0);
   }
 
   public playSwap(): void {

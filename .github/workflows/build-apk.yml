@@ -36,15 +36,16 @@ jobs:
       - name: Build web bundle (Vite)
         run: npm run build -- --base=./
 
-      - name: Install Capacitor 7 & sync Android project
+      - name: Install Capacitor 7, generate Sugar Pop Android assets & sync project
         run: |
-          npm install --no-save --legacy-peer-deps @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7
+          npm install --no-save --legacy-peer-deps @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/splash-screen@7
           if [ ! -f capacitor.config.json ] && [ ! -f capacitor.config.ts ]; then
-            node -e 'const fs=require("fs");fs.writeFileSync("capacitor.config.json",JSON.stringify({appId:"com.candycrush.match3saga",appName:"Candy Crush Saga",webDir:"dist",server:{androidScheme:"https"}},null,2))'
+            node -e 'const fs=require("fs");fs.writeFileSync("capacitor.config.json",JSON.stringify({appId:"com.sugarpop",appName:"Sugar Pop",webDir:"dist",server:{androidScheme:"https"},plugins:{SplashScreen:{launchShowDuration:0,launchAutoHide:false,backgroundColor:"#2F8CF0",androidSplashResourceName:"splash",androidScaleType:"CENTER_CROP",showSpinner:false,splashFullScreen:true,splashImmersive:true}}},null,2))'
           fi
-          if [ ! -d android ]; then
-            npx cap add android
-          fi
+          rm -rf android
+          npx cap add android
+          npx --yes @capacitor/assets generate --android --iconBackgroundColor '#2F8CF0' --iconBackgroundColorDark '#2F8CF0' --splashBackgroundColor '#2F8CF0' --splashBackgroundColorDark '#2F8CF0'
+          node -e 'const fs=require("fs");const p="android/app/src/main/res/values/strings.xml";if(fs.existsSync(p)){let s=fs.readFileSync(p,"utf8");s=s.replace(/<string name="app_name">.*?<\/string>/,"<string name=\"app_name\">Sugar Pop</string>");s=s.replace(/<string name="title_activity_main">.*?<\/string>/,"<string name=\"title_activity_main\">Sugar Pop</string>");fs.writeFileSync(p,s);}'
           npx cap sync android
           chmod +x android/gradlew
 
@@ -67,9 +68,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: apk-v${{ github.run_number }}
-          name: Candy Crush Saga APK (Build #${{ github.run_number }})
+          name: Sugar Pop APK (Build #${{ github.run_number }})
           body: |
-            Android Debug APK built automatically with Node 22, Java 21, and Capacitor 7.
+            Sugar Pop Android Debug APK built automatically with Node 22, Java 21, and Capacitor 7.
 
             Download `app-debug.apk` directly from the Assets section below to install on your phone.
           files: app-debug.apk

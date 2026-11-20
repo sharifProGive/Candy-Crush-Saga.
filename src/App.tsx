@@ -4,6 +4,7 @@ import { DailyRewardModal } from './components/DailyRewardModal';
 import { GameBoard } from './components/GameBoard';
 import { LevelMap } from './components/LevelMap';
 import { SettingsModal } from './components/SettingsModal';
+import { StartupScreen } from './components/StartupScreen';
 import { TitleScreen } from './components/TitleScreen';
 import {
   canClaimDailyReward,
@@ -36,14 +37,13 @@ function loadProgress(): Record<number, LevelProgress> {
 }
 
 export default function App() {
-  const [screen, setScreen] = useState<GameScreen>('TITLE_MENU');
+  const [screen, setScreen] = useState<GameScreen>('STARTUP');
   const [progress, setProgress] = useState<Record<number, LevelProgress>>(() => loadProgress());
   const [dailyState, setDailyState] = useState<DailyRewardState>(() => loadDailyRewardState());
-  const [showDailyModal, setShowDailyModal] = useState<boolean>(() =>
-    canClaimDailyReward(loadDailyRewardState())
-  );
+  const [showDailyModal, setShowDailyModal] = useState<boolean>(false);
   const [justClaimedDay, setJustClaimedDay] = useState<number | null>(null);
   const [activeLevelId, setActiveLevelId] = useState<number>(1);
+  const [celebratedThreeStarLevelId, setCelebratedThreeStarLevelId] = useState<number | null>(null);
   const [stereoCapability] = useState<StereoCapability>(() => detectStereoAudioCapability());
   const [settings, setSettings] = useState<GameSettings>(() =>
     loadGameSettings(stereoCapability.supported)
@@ -78,8 +78,9 @@ export default function App() {
     soundEngine.applySettings(settings, stereoCapability.supported);
   }, [settings, stereoCapability.supported]);
 
-  // Automatically switch between File 1 (Lobby/Home) and File 2 (Gameplay) based on screen state
+  // Automatically switch between File 1 (Lobby/Home) and File 2 (Gameplay) once past STARTUP
   useEffect(() => {
+    if (screen === 'STARTUP') return;
     const targetTrack = screen === 'PLAYING' ? 'gameplay' : 'lobby';
     soundEngine.setMusicTrack(targetTrack);
   }, [screen]);
@@ -89,7 +90,7 @@ export default function App() {
     const onVisibilityChange = () => {
       if (document.hidden) {
         soundEngine.pauseMusic();
-      } else if (settings.backgroundMusic) {
+      } else if (settings.backgroundMusic && screen !== 'STARTUP') {
         soundEngine.resumeMusic();
       }
     };
@@ -97,10 +98,9 @@ export default function App() {
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [settings.backgroundMusic]);
+  }, [settings.backgroundMusic, screen]);
 
   useEffect(() => {
-    soundEngine.preloadVoiceClips();
     return () => {
       soundEngine.stopMusic();
     };
@@ -136,6 +136,21 @@ export default function App() {
     [stereoCapability.supported]
   );
 
+  const handleStartupTap = useCallback(() => {
+    soundEngine.unlock();
+    soundEngine.playStartupPop();
+    soundEngine.vibrate(18);
+    // Start Audio 1 (Lobby) right inside the user tap gesture so mobile WebView unlocks audio cleanly
+    soundEngine.setMusicTrack('lobby');
+  }, []);
+
+  const handleStartupComplete = useCallback(() => {
+    setScreen('TITLE_MENU');
+    if (canClaimDailyReward(dailyState)) {
+      setShowDailyModal(true);
+    }
+  }, [dailyState]);
+
   const handlePlayNow = useCallback(() => {
     soundEngine.unlock();
     soundEngine.playButton();
@@ -150,6 +165,9 @@ export default function App() {
   }, []);
 
   const handleLevelComplete = useCallback((levelId: number, score: number, stars: number) => {
+    if (stars >= 3) {
+      setCelebratedThreeStarLevelId(levelId);
+    }
     setProgress((prev) => {
       const existing = prev[levelId];
       return {
@@ -205,7 +223,14 @@ export default function App() {
   const activeLevel = LEVELS.find((l) => l.id === activeLevelId) ?? LEVELS[0];
 
   return (
-    <div className="w-screen h-screen overflow-hidden">
+    <div className="w-screen h-screen overflow-hidden bg-[#2F8CF0]">
+      {screen === 'STARTUP' && (
+        <StartupScreen
+          onTapStart={handleStartupTap}
+          onTransitionComplete={handleStartupComplete}
+        />
+      )}
+
       {screen === 'TITLE_MENU' && (
         <TitleScreen
           totalStars={totalStars}
@@ -222,12 +247,15 @@ export default function App() {
         <LevelMap
           progress={progress}
           highestUnlockedLevel={highestUnlockedLevel}
+          celebratedThreeStarLevelId={celebratedThreeStarLevelId}
           dailyClaimable={dailyClaimable}
+          onCelebrationDone={() => setCelebratedThreeStarLevelId(null)}
           onOpenSettings={handleOpenSettings}
           onOpenDailyRewards={handleOpenDailyRewards}
           onSelectLevel={handleSelectLevel}
           onBackHome={() => {
             soundEngine.playButton();
+            setCelebratedThreeStarLevelId(null);
             setScreen('TITLE_MENU');
           }}
         />

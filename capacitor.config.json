@@ -1,8 +1,20 @@
 {
-  "appId": "com.candycrush.match3saga",
-  "appName": "Candy Crush Saga",
+  "appId": "com.sugarpop",
+  "appName": "Sugar Pop",
   "webDir": "dist",
   "server": {
     "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 0,
+      "launchAutoHide": false,
+      "backgroundColor": "#2F8CF0",
+      "androidSplashResourceName": "splash",
+      "androidScaleType": "CENTER_CROP",
+      "showSpinner": false,
+      "splashFullScreen": true,
+      "splashImmersive": true
+    }
   }
 }
