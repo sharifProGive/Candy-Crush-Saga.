@@ -11,6 +11,7 @@ permissions:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -26,14 +27,14 @@ jobs:
           distribution: "temurin"
           java-version: "21"
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
       - name: Build web bundle (Vite)
-        run: npm run build
+        run: npm run build -- --base=./
 
       - name: Install Capacitor 7 & sync Android project
         run: |
