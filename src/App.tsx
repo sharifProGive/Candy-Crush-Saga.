@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { soundEngine } from './audio/soundEngine';
 import { DailyRewardModal } from './components/DailyRewardModal';
+import { FpsOverlay } from './components/FpsOverlay';
 import { GameBoard } from './components/GameBoard';
 import { LevelMap } from './components/LevelMap';
 import { SelectedStartBoosters } from './components/LevelStartModal';
@@ -15,8 +16,12 @@ import {
   PlayerInventory,
   saveDailyRewardState,
 } from './game/dailyRewards';
+import { setSlowMoEffects } from './game/fxTimeline';
 import { LEVELS } from './game/levels';
-import { initFullscreenStatusBar } from './game/performanceGuard';
+import {
+  initFullscreenStatusBar,
+  setEffectsQualityPreference,
+} from './game/performanceGuard';
 import {
   detectStereoAudioCapability,
   GameSettings,
@@ -82,10 +87,12 @@ export default function App() {
     }
   }, [progress]);
 
-  // Sync persisted settings to soundEngine immediately and whenever updated
+  // Sync persisted settings to soundEngine, performanceGuard & fxTimeline immediately and whenever updated
   useEffect(() => {
     saveGameSettings(settings);
     soundEngine.applySettings(settings, stereoCapability.supported);
+    setEffectsQualityPreference(settings.effectsQuality);
+    setSlowMoEffects(settings.slowMoEffects);
   }, [settings, stereoCapability.supported]);
 
   // Automatically switch between File 1 (Lobby/Home) and File 2/3 (Gameplay) once past STARTUP
@@ -134,6 +141,14 @@ export default function App() {
             : false,
         };
         soundEngine.applySettings(next, stereoCapability.supported);
+        if (patch.effectsQuality !== undefined) {
+          setEffectsQualityPreference(next.effectsQuality);
+          if (next.gameSounds) soundEngine.playButton();
+        }
+        if (patch.slowMoEffects !== undefined) {
+          setSlowMoEffects(next.slowMoEffects);
+          if (next.gameSounds) soundEngine.playButton();
+        }
         if (patch.gameSounds === true || (patch.spatialAudio !== undefined && next.gameSounds)) {
           soundEngine.playButton();
         }
@@ -351,6 +366,8 @@ export default function App() {
           }}
         />
       )}
+
+      <FpsOverlay />
     </div>
   );
 }

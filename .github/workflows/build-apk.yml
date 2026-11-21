@@ -46,6 +46,7 @@ jobs:
           npx cap add android
           npx --yes @capacitor/assets generate --android --iconBackgroundColor '#2F8CF0' --iconBackgroundColorDark '#2F8CF0' --splashBackgroundColor '#2F8CF0' --splashBackgroundColorDark '#2F8CF0'
           node -e 'const fs=require("fs");const p="android/app/src/main/res/values/strings.xml";if(fs.existsSync(p)){let s=fs.readFileSync(p,"utf8");s=s.replace(/<string name="app_name">.*?<\/string>/,"<string name=\"app_name\">Sugar Pop</string>");s=s.replace(/<string name="title_activity_main">.*?<\/string>/,"<string name=\"title_activity_main\">Sugar Pop</string>");fs.writeFileSync(p,s);}'
+          node -e 'const fs=require("fs");const m="android/app/src/main/AndroidManifest.xml";if(fs.existsSync(m)){let s=fs.readFileSync(m,"utf8");if(!/android:hardwareAccelerated/.test(s)){s=s.replace("<application","<application\n        android:hardwareAccelerated=\"true\"");}else{s=s.replace(/android:hardwareAccelerated="false"/g,"android:hardwareAccelerated=\"true\"");}if(/<activity\b(?![^>]*android:hardwareAccelerated)/.test(s)){s=s.replace("<activity","<activity\n            android:hardwareAccelerated=\"true\"");}fs.writeFileSync(m,s);console.log("Verified AndroidManifest hardwareAccelerated=true");}'
           npx cap sync android
           chmod +x android/gradlew
 

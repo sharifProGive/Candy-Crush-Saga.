@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   getCandySpriteSrc,
+  isCandySpriteCacheReady,
   preloadAllCandySprites,
   subscribeCandySpriteCache,
 } from '../game/candySprites';
@@ -17,6 +18,7 @@ export const CandySprite: React.FC<CandySpriteProps> = React.memo(
     const [, setCacheTick] = useState(0);
 
     useEffect(() => {
+      if (isCandySpriteCacheReady()) return undefined;
       void preloadAllCandySprites();
       return subscribeCandySpriteCache(() => setCacheTick((n) => n + 1));
     }, []);
@@ -25,9 +27,7 @@ export const CandySprite: React.FC<CandySpriteProps> = React.memo(
 
     return (
       <div
-        className={`relative flex items-center justify-center select-none pointer-events-none ${className} ${
-          special === 'wrapped' ? 'animate-wrapped-shimmer' : ''
-        }`}
+        className={`relative flex items-center justify-center select-none pointer-events-none ${className}`}
       >
         <img
           src={src}

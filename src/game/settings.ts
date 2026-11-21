@@ -1,3 +1,5 @@
+export type EffectsQuality = 'auto' | 'high' | 'low';
+
 export interface GameSettings {
   gameSounds: boolean;
   sfxVolume: number; // 0 to 100 (independent volume for game sounds & voices)
@@ -5,6 +7,8 @@ export interface GameSettings {
   musicVolume: number; // 0 to 100 (independent volume for background music)
   spatialAudio: boolean;
   vibration: boolean;
+  effectsQuality: EffectsQuality;
+  slowMoEffects: boolean; // Debug toggle: 0.5x fxSpeed
 }
 
 export interface StereoCapability {
@@ -13,7 +17,7 @@ export interface StereoCapability {
   errorMessage: string | null;
 }
 
-const SETTINGS_STORAGE_KEY = 'sugar_pop_settings_v1';
+export const SETTINGS_STORAGE_KEY = 'sugar_pop_settings_v1';
 
 export const DEFAULT_SETTINGS: GameSettings = {
   gameSounds: true,
@@ -22,6 +26,8 @@ export const DEFAULT_SETTINGS: GameSettings = {
   musicVolume: 85,
   spatialAudio: true,
   vibration: true,
+  effectsQuality: 'auto',
+  slowMoEffects: false,
 };
 
 function clampVolume(val: unknown, fallback: number): number {
@@ -29,6 +35,13 @@ function clampVolume(val: unknown, fallback: number): number {
     return Math.max(0, Math.min(100, Math.round(val)));
   }
   return fallback;
+}
+
+function parseEffectsQuality(val: unknown): EffectsQuality {
+  if (val === 'auto' || val === 'high' || val === 'low') {
+    return val;
+  }
+  return DEFAULT_SETTINGS.effectsQuality;
 }
 
 export function detectStereoAudioCapability(): StereoCapability {
@@ -109,6 +122,11 @@ export function loadGameSettings(stereoSupported: boolean): GameSettings {
         : false,
       vibration:
         typeof parsed.vibration === 'boolean' ? parsed.vibration : DEFAULT_SETTINGS.vibration,
+      effectsQuality: parseEffectsQuality(parsed.effectsQuality),
+      slowMoEffects:
+        typeof parsed.slowMoEffects === 'boolean'
+          ? parsed.slowMoEffects
+          : DEFAULT_SETTINGS.slowMoEffects,
     };
   } catch {
     return {

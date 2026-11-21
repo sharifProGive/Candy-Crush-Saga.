@@ -3,12 +3,13 @@ import {
   AlertCircle,
   Music,
   Smartphone,
+  Sparkles,
   Speaker,
   Volume2,
   VolumeX,
   X,
 } from 'lucide-react';
-import { GameSettings, StereoCapability } from '../game/settings';
+import { EffectsQuality, GameSettings, StereoCapability } from '../game/settings';
 
 interface SettingsModalProps {
   settings: GameSettings;
@@ -435,6 +436,97 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 label="Toggle Vibration and Haptics"
                 onToggle={() => onUpdateSettings({ vibration: !settings.vibration })}
               />
+            </div>
+
+            {/* Card 5: Effects Quality (Auto / High / Low) */}
+            <div className="rounded-[22px] bg-white border-2 border-[#bdd8ff] shadow-[0_6px_18px_rgba(29,78,216,0.09)] px-4 py-4 flex flex-col gap-3">
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="w-[52px] h-[52px] rounded-2xl bg-gradient-to-br from-[#38bdf8] via-[#0ea5e9] to-[#0284c7] text-white shadow-[0_6px_14px_rgba(2,132,199,0.34)] flex items-center justify-center shrink-0">
+                  <Sparkles className="w-7 h-7" strokeWidth={2.4} />
+                </div>
+                <div className="min-w-0">
+                  <div className="font-settings-heading font-extrabold text-[20px] text-[#0F2747] leading-tight">
+                    Effects Quality
+                  </div>
+                  <div className="text-[15px] font-semibold text-[#1E3A5F] leading-snug mt-0.5">
+                    {settings.effectsQuality === 'auto' ? (
+                      <>
+                        <span className="font-extrabold text-[#116630]">Auto</span>
+                        <span> · Adapts to keep 60 FPS</span>
+                      </>
+                    ) : settings.effectsQuality === 'high' ? (
+                      <>
+                        <span className="font-extrabold text-[#1d4ed8]">High</span>
+                        <span> · Full particles &amp; glows</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-extrabold text-[#b45309]">Low</span>
+                        <span> · Minimal particles for max speed</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div
+                role="radiogroup"
+                aria-label="Effects Quality"
+                className="grid grid-cols-3 gap-2 rounded-2xl bg-[#eaf3ff] border border-[#c7dfff] p-1.5"
+              >
+                {(
+                  [
+                    { value: 'auto', label: 'Auto' },
+                    { value: 'high', label: 'High' },
+                    { value: 'low', label: 'Low' },
+                  ] as Array<{ value: EffectsQuality; label: string }>
+                ).map((opt) => {
+                  const active = settings.effectsQuality === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => onUpdateSettings({ effectsQuality: opt.value })}
+                      className={`min-h-[42px] rounded-xl font-settings-heading font-extrabold text-[16px] cursor-pointer transition-transform active:scale-95 ${
+                        active
+                          ? 'bg-gradient-to-b from-[#38bdf8] via-[#2563eb] to-[#1d4ed8] text-white shadow-[0_4px_10px_rgba(29,78,216,0.32)] border border-[#93c5fd]'
+                          : 'bg-white text-[#1E3A5F] border border-[#cfe3ff]'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Debug Slow-mo Effects Toggle (fxSpeed = 0.5x) */}
+              <div className="flex items-center justify-between gap-3 pt-2 border-t border-[#d8e8ff]">
+                <div className="min-w-0">
+                  <div className="font-settings-heading font-extrabold text-[17px] text-[#0F2747] leading-tight">
+                    Slow-mo effects
+                  </div>
+                  <div className="text-[14px] font-semibold text-[#1E3A5F] leading-snug mt-0.5">
+                    {settings.slowMoEffects ? (
+                      <>
+                        <span className="font-extrabold text-[#116630]">On</span>
+                        <span> · 0.5× speed for inspecting blasts</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-extrabold text-[#475569]">Off</span>
+                        <span> · 1.0× normal animation speed</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <ToggleSwitch
+                  checked={settings.slowMoEffects}
+                  label="Toggle Slow-mo effects"
+                  onToggle={() => onUpdateSettings({ slowMoEffects: !settings.slowMoEffects })}
+                />
+              </div>
             </div>
           </div>
 

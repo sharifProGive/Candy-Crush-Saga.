@@ -100,6 +100,7 @@ class CandySoundEngine {
   private lastVoiceTime = 0;
   private lastPhraseTime: Partial<Record<PraiseWord, number>> = {};
   private lastSpokenPhrase: PraiseWord | null = null;
+  private lastCandyPopMs = 0;
 
   private getEffectiveBgmVolume(): number {
     if (this.muted || !this.backgroundMusicEnabled) return 0;
@@ -802,6 +803,36 @@ class CandySoundEngine {
     this.playRoundedTone(base, now, 0.16, 0.24, this.sfxGain, true, 1900, base * 1.12, -0.32);
     this.playRoundedTone(base * 1.25, now + 0.04, 0.18, 0.18, this.sfxGain, true, 2000, undefined, 0);
     this.playRoundedTone(base * 1.5, now + 0.08, 0.22, 0.14, this.sfxGain, true, 2200, undefined, 0.32);
+  }
+
+  /**
+   * Individual rising-pitch candy pop sound for staggered clears.
+   * Strictly throttled to at most one sound every 40ms.
+   */
+  public playCandyPop(pitchStep: number, pan = 0): void {
+    if (!this.canPlaySfx()) return;
+    const nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (nowMs - this.lastCandyPopMs < 40) return;
+    this.lastCandyPopMs = nowMs;
+
+    const ctx = this.ensureContext();
+    if (!ctx || !this.sfxGain) return;
+    const now = ctx.currentTime;
+
+    // Bright ascending musical pitch steps as candies pop one by one
+    const clampedStep = Math.max(0, Math.min(14, pitchStep));
+    const baseHz = 360 * Math.pow(2, clampedStep / 12);
+    this.playRoundedTone(
+      baseHz,
+      now,
+      0.085,
+      0.16,
+      this.sfxGain,
+      true,
+      1950,
+      baseHz * 1.38,
+      Math.max(-0.55, Math.min(0.55, pan))
+    );
   }
 
   public playStriped(): void {

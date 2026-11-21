@@ -318,11 +318,15 @@
 
 @keyframes candySelectedPulse {
   0%, 100% {
-    transform: translate3d(0, -2px, 0);
+    transform: translate3d(0, -2px, 0) scale(1.08);
   }
   50% {
-    transform: translate3d(0, -6px, 0);
+    transform: translate3d(0, -6px, 0) scale(1.11);
   }
+}
+
+.tile-selected-static {
+  transform: translate3d(0, -2px, 0) scale(1.08);
 }
 
 @keyframes candySpawnDrop {

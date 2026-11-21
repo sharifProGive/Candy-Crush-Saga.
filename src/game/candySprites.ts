@@ -356,6 +356,12 @@ export function getCandySpriteSrc(color: CandyColor, special: SpecialType): stri
   return rasterUrlCache.get(key) ?? getSvgDataUrl(color, special);
 }
 
+let cacheReady = false;
+
+export function isCandySpriteCacheReady(): boolean {
+  return cacheReady;
+}
+
 /**
  * Preloads & caches all 25 high-resolution candy sprites once at startup.
  */
@@ -374,13 +380,16 @@ export function preloadAllCandySprites(): Promise<void> {
   jobs.push(rasterizeSpriteToHighDpiPng(cbKey, getSvgDataUrl('red', 'color-bomb')));
 
   preloadPromise = Promise.all(jobs).then(() => {
+    cacheReady = true;
     for (const cb of cacheListeners) cb();
+    cacheListeners.clear();
   });
 
   return preloadPromise;
 }
 
 export function subscribeCandySpriteCache(listener: () => void): () => void {
+  if (cacheReady) return () => {};
   cacheListeners.add(listener);
   return () => {
     cacheListeners.delete(listener);
