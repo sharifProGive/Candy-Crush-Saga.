@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Check,
   Hammer,
+  Lock,
   Map as MapIcon,
   Pause,
   Play,
@@ -27,6 +29,7 @@ import {
   resolveSpecialSwapCombo,
   shuffleGrid,
 } from '../game/matchEngine';
+import { useLowPerformanceMode } from '../game/performanceGuard';
 import {
   FloatingScore,
   Grid,
@@ -44,6 +47,9 @@ interface GameBoardProps {
   level: LevelConfig;
   backgroundMusicEnabled: boolean;
   inventory: PlayerInventory;
+  initialExtraMoves?: number;
+  initialHammerArmed?: boolean;
+  initialOpeningShuffle?: boolean;
   onConsumeBooster: (type: keyof PlayerInventory) => boolean;
   onOpenSettings: () => void;
   onLevelComplete: (levelId: number, score: number, stars: number) => void;
@@ -53,19 +59,37 @@ interface GameBoardProps {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const BOKEH_DOTS: Array<{
+  top: string;
+  left: string;
+  size: number;
+  opacity: number;
+  delay: string;
+}> = [
+  { top: '14%', left: '12%', size: 96, opacity: 0.22, delay: '0s' },
+  { top: '22%', left: '78%', size: 120, opacity: 0.18, delay: '-2.2s' },
+  { top: '68%', left: '8%', size: 110, opacity: 0.16, delay: '-4.5s' },
+  { top: '76%', left: '84%', size: 88, opacity: 0.2, delay: '-1.5s' },
+  { top: '44%', left: '88%', size: 68, opacity: 0.15, delay: '-3.1s' },
+];
+
 export const GameBoard: React.FC<GameBoardProps> = ({
   level,
   backgroundMusicEnabled,
   inventory,
+  initialExtraMoves = 0,
+  initialHammerArmed = false,
+  initialOpeningShuffle = false,
   onConsumeBooster,
   onOpenSettings,
   onLevelComplete,
   onNextLevel,
   onBackToMap,
 }) => {
+  const lowPerf = useLowPerformanceMode();
   const [grid, setGrid] = useState<Grid>(() => createInitialGrid(level.colorsCount));
   const [score, setScore] = useState(0);
-  const [movesLeft, setMovesLeft] = useState(level.moves);
+  const [movesLeft, setMovesLeft] = useState(level.moves + initialExtraMoves);
   const [orderCollected, setOrderCollected] = useState(0);
   const [modalState, setModalState] = useState<PlayModalState>('NONE');
   const [selected, setSelected] = useState<Position | null>(null);
@@ -106,28 +130,50 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     };
   }, []);
 
-  // Reset board cleanly whenever level changes
-  const resetLevel = useCallback(() => {
-    runIdRef.current += 1;
-    vfxRef.current?.clear();
-    setGrid(createInitialGrid(level.colorsCount));
-    setScore(0);
-    setMovesLeft(level.moves);
-    setOrderCollected(0);
-    setModalState('NONE');
-    setSelected(null);
-    setHintPair(null);
-    setSwappingPair(null);
-    setIsBusy(false);
-    setHammerActive(false);
-    setFloatingScores([]);
-    setPraisePopup(null);
-    setStatusBanner(null);
-  }, [level]);
+  // Reset board cleanly whenever level changes (preserving any pre-selected start boosters on initial mount)
+  const appliedStartBoostRef = useRef(false);
+  const resetLevel = useCallback(
+    (applyInitialBoosts = false) => {
+      runIdRef.current += 1;
+      vfxRef.current?.clear();
+      const baseGrid = createInitialGrid(level.colorsCount);
+      const openingGrid =
+        applyInitialBoosts && initialOpeningShuffle
+          ? shuffleGrid(baseGrid, level.colorsCount)
+          : baseGrid;
+      setGrid(openingGrid);
+      setScore(0);
+      setMovesLeft(level.moves + (applyInitialBoosts ? initialExtraMoves : 0));
+      setOrderCollected(0);
+      setModalState('NONE');
+      setSelected(null);
+      setHintPair(null);
+      setSwappingPair(null);
+      setIsBusy(false);
+      setHammerActive(Boolean(applyInitialBoosts && initialHammerArmed && inventory.hammers > 0));
+      setFloatingScores([]);
+      setPraisePopup(null);
+      if (applyInitialBoosts && initialOpeningShuffle) {
+        const myRun = runIdRef.current;
+        setStatusBanner('Opening Shuffle Boost Active!');
+        window.setTimeout(() => {
+          if (isMountedRef.current && myRun === runIdRef.current) {
+            setGrid((prev) => clearDropFlags(prev));
+            setStatusBanner(null);
+          }
+        }, 900);
+      } else {
+        setStatusBanner(null);
+      }
+    },
+    [level, initialExtraMoves, initialHammerArmed, initialOpeningShuffle, inventory.hammers]
+  );
 
   useEffect(() => {
-    resetLevel();
-  }, [resetLevel]);
+    const shouldApplyBoosts = !appliedStartBoostRef.current;
+    appliedStartBoostRef.current = true;
+    resetLevel(shouldApplyBoosts);
+  }, [level.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pause/resume gameplay music when Pause Modal is opened/closed
   useEffect(() => {
@@ -787,54 +833,128 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const star2Pct = (level.starScores[1] / level.starScores[2]) * 100;
   const earnedStars = computeStars(score);
   const hasNextLevel = level.id < LEVELS.length;
+  const remainingOrder = level.order ? Math.max(0, level.order.target - orderCollected) : 0;
+  const remainingScore = Math.max(0, level.targetScore - score);
 
   return (
     <div
       className="relative w-full h-full flex flex-col justify-between overflow-hidden"
       style={{
-        background: 'linear-gradient(180deg, #98e6ea 0%, #6dd2dc 45%, #4bb3c2 100%)',
+        background: 'linear-gradient(180deg, #52dce3 0%, #2ab5c4 50%, #1c8599 100%)',
       }}
     >
-      {/* Subtle Aqua Candy World Background Silhouettes */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-25" aria-hidden="true">
-        <div className="absolute -left-24 top-1/4 w-72 h-72 rounded-full bg-white/40 blur-2xl" />
-        <div className="absolute -right-20 bottom-1/4 w-80 h-80 rounded-full bg-[#1a788c]/35 blur-2xl" />
+      {/* 4 Soft Pre-Feathered Overhead Light Shafts (Pure CSS Gradients, Zero Live Blur) */}
+      <div
+        className={`pointer-events-none absolute inset-0 overflow-hidden ${
+          lowPerf ? '' : 'animate-light-beams'
+        }`}
+        aria-hidden="true"
+      >
+        <div
+          className="absolute -top-14 left-[2%] w-[24%] h-[90%] origin-top opacity-24"
+          style={{
+            background:
+              'linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(235,254,255,0.55) 50%, rgba(255,255,255,0) 100%)',
+            maskImage: 'linear-gradient(180deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.35) 60%, rgba(0,0,0,0) 100%)',
+            WebkitMaskImage:
+              'linear-gradient(180deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.35) 60%, rgba(0,0,0,0) 100%)',
+            transform: 'skewX(-16deg)',
+          }}
+        />
+        <div
+          className="absolute -top-14 left-[28%] w-[22%] h-[92%] origin-top opacity-20"
+          style={{
+            background:
+              'linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(235,254,255,0.52) 50%, rgba(255,255,255,0) 100%)',
+            maskImage: 'linear-gradient(180deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.3) 62%, rgba(0,0,0,0) 100%)',
+            WebkitMaskImage:
+              'linear-gradient(180deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.3) 62%, rgba(0,0,0,0) 100%)',
+            transform: 'skewX(-12deg)',
+          }}
+        />
+        <div
+          className="absolute -top-14 left-[54%] w-[22%] h-[88%] origin-top opacity-18"
+          style={{
+            background:
+              'linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(220,252,255,0.48) 50%, rgba(255,255,255,0) 100%)',
+            maskImage: 'linear-gradient(180deg, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.28) 58%, rgba(0,0,0,0) 100%)',
+            WebkitMaskImage:
+              'linear-gradient(180deg, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.28) 58%, rgba(0,0,0,0) 100%)',
+            transform: 'skewX(-15deg)',
+          }}
+        />
+        <div
+          className="absolute -top-14 right-[2%] w-[20%] h-[84%] origin-top opacity-16"
+          style={{
+            background:
+              'linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(220,252,255,0.45) 50%, rgba(255,255,255,0) 100%)',
+            maskImage: 'linear-gradient(180deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.25) 56%, rgba(0,0,0,0) 100%)',
+            WebkitMaskImage:
+              'linear-gradient(180deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.25) 56%, rgba(0,0,0,0) 100%)',
+            transform: 'skewX(-19deg)',
+          }}
+        />
       </div>
 
-      {/* Top Pink Peppermint HUD Bar (Screenshot 2 Layout) */}
-      <header className="candy-stripes-pink relative z-20 shrink-0 w-full px-3 sm:px-6 py-2.5 border-b-4 border-[#d95b96] shadow-md">
-        <div className="max-w-3xl mx-auto flex items-center justify-between gap-2 sm:gap-4">
-          {/* Left: Moves Left & Level */}
-          <div className="flex items-center gap-2.5 shrink-0">
-            <div className="bg-white/85 px-3 py-1 rounded-2xl shadow-inner text-center min-w-[64px]">
-              <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#9e1054] leading-none">
-                Moves
-              </div>
-              <div
-                className={`font-display font-bold text-2xl sm:text-3xl leading-tight tabular-nums text-stroke-pink text-white ${
-                  movesLeft <= 5 ? 'animate-pulse' : ''
-                }`}
-              >
-                {movesLeft}
-              </div>
-            </div>
-            <div className="hidden sm:block text-xs font-extrabold text-[#7a093f] bg-white/75 px-2.5 py-1 rounded-xl">
-              Lv {level.id} · {level.name}
-            </div>
+      {/* Soft Pre-Feathered Bokeh Orbs (Pure Multi-Stop Radial Gradient, Zero Live Blur) */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+        {BOKEH_DOTS.map((dot, idx) => (
+          <div
+            key={idx}
+            className={`absolute rounded-full ${lowPerf ? '' : 'animate-bokeh-drift'}`}
+            style={{
+              top: dot.top,
+              left: dot.left,
+              width: `${dot.size}px`,
+              height: `${dot.size}px`,
+              opacity: dot.opacity,
+              animationDelay: lowPerf ? undefined : dot.delay,
+              background:
+                'radial-gradient(circle, rgba(240,254,255,0.85) 0%, rgba(190,248,255,0.42) 34%, rgba(165,243,252,0.12) 60%, rgba(165,243,252,0) 76%)',
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Soft White-Teal Radial Glow Directly Behind Floating Board + Subtle Edge Vignette */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(circle at 50% 52%, rgba(220, 252, 255, 0.36) 0%, rgba(140, 238, 250, 0.16) 34%, rgba(140, 238, 250, 0) 60%), radial-gradient(ellipse at 50% 50%, rgba(6, 44, 62, 0) 56%, rgba(5, 36, 52, 0.32) 100%)',
+        }}
+        aria-hidden="true"
+      />
+
+      {/* Top Pink Striped HUD Bar (Safe Area Top, Crisp High-Contrast Text & Icons) */}
+      <header className="candy-stripes-pink safe-area-top relative z-20 shrink-0 w-full border-b-[3px] border-[#c41468] shadow-[0_6px_16px_rgba(6,38,56,0.28)]">
+        <div className="max-w-xl mx-auto flex items-center justify-between gap-2 px-2.5 sm:px-4 py-1.5">
+          {/* Left: Chunky Bubble-Letter Moves Badge with Crisp White Outline & Pink Border */}
+          <div className="shrink-0 flex flex-col items-center justify-center rounded-2xl bg-gradient-to-b from-[#ff7ac0] to-[#d91670] border-[3px] border-white px-3 py-1 min-w-[66px] shadow-[0_4px_0_#8f0946,inset_0_2px_2px_rgba(255,255,255,0.5)]">
+            <span className="font-settings font-extrabold text-[10px] uppercase tracking-wider text-white leading-none">
+              Moves
+            </span>
+            <span
+              className={`font-settings-heading font-extrabold text-[32px] sm:text-[36px] leading-[1.02] tabular-nums text-white moves-bubble-num ${
+                movesLeft <= 5 ? 'animate-moves-low' : ''
+              }`}
+            >
+              {movesLeft}
+            </span>
           </div>
 
-          {/* Center: 3-Star Progress Meter + Target / Order */}
-          <div className="flex-1 max-w-xs sm:max-w-sm flex flex-col items-center gap-1">
-            {/* 3-Star Progress Track */}
-            <div className="relative w-full h-4 bg-[#6e1240]/60 rounded-full p-0.5 shadow-inner">
+          {/* Center: 3-Star Progress Bar + High-Contrast Glossy Cream Goal Panel */}
+          <div className="flex-1 min-w-0 max-w-[270px] flex flex-col items-center gap-1.5">
+            {/* Progress Track with 3 Popping Star Markers */}
+            <div className="relative w-full h-4 rounded-full bg-[#610d38]/82 border-2 border-white/90 p-0.5 shadow-inner">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-[#ffcf40] via-[#ff9d2e] to-[#ff4da6] transition-all duration-300"
-                style={{ width: `${progressPct}%` }}
+                className="h-full rounded-full bg-gradient-to-r from-[#ffde59] via-[#ff9d2e] to-[#ff4da6] transition-[width] duration-300 ease-out"
+                style={{ width: `${Math.max(4, progressPct)}%` }}
               />
               {[
                 { pct: star1Pct, met: score >= level.starScores[0] },
                 { pct: star2Pct, met: score >= level.starScores[1] },
-                { pct: 98, met: score >= level.starScores[2] },
+                { pct: 96, met: score >= level.starScores[2] },
               ].map((st, idx) => (
                 <div
                   key={idx}
@@ -842,72 +962,86 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   style={{ left: `${st.pct}%` }}
                 >
                   <Star
-                    className={`w-4 h-4 ${
-                      st.met ? 'fill-amber-300 text-amber-600 drop-shadow' : 'fill-[#8f295c] text-[#f7a8ce]'
+                    className={`w-5 h-5 ${
+                      st.met
+                        ? 'fill-[#ffe047] text-[#9a3f04] animate-hud-star-pop'
+                        : 'fill-[#7c1d4d] text-[#f9b6d8]'
                     }`}
                   />
                 </div>
               ))}
             </div>
 
-            {/* Score + Order Pill-free Crisp Readout */}
-            <div className="w-full flex items-center justify-center gap-3 bg-white/85 px-3 py-1 rounded-xl shadow-xs text-xs sm:text-sm font-extrabold text-[#7a093f] tabular-nums">
-              <span>
-                Score: {score.toLocaleString()} / {level.targetScore.toLocaleString()}
-              </span>
-              {level.order && (
-                <span className="flex items-center gap-1 border-l border-[#d95b96]/40 pl-2.5">
-                  <span className="w-4 h-4 inline-block">
+            {/* Sharp High-Contrast Cream Rounded Goal Panel */}
+            <div className="w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-b from-[#fffef9] to-[#ffefd1] border-2 border-[#f2c472] px-3 py-1 shadow-[0_2px_0_#c98e2c,inset_0_1px_1px_rgba(255,255,255,0.95)] text-[#0a1d37] tabular-nums">
+              {level.order ? (
+                <>
+                  <span className="w-6 h-6 shrink-0 inline-flex items-center justify-center">
                     <CandySprite color={level.order.color} special="none" />
                   </span>
-                  <span>
-                    {Math.min(orderCollected, level.order.target)}/{level.order.target}
+                  <span className="font-settings-heading font-extrabold text-[18px] leading-none text-[#0a1d37]">
+                    {remainingOrder === 0 ? (
+                      <span className="inline-flex items-center gap-1 text-[#146c31]">
+                        <Check className="w-4 h-4 stroke-[3.5]" /> Done
+                      </span>
+                    ) : (
+                      remainingOrder
+                    )}
                   </span>
-                </span>
+                  <span className="text-[#9e6c1e] font-black text-xs">·</span>
+                  <span className="font-settings font-extrabold text-[12px] text-[#5c3608] truncate">
+                    {score.toLocaleString()} pts
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Star className="w-4 h-4 fill-[#f59e0b] text-[#92400e] shrink-0" />
+                  <span className="font-settings-heading font-extrabold text-[16px] leading-none text-[#0a1d37]">
+                    {score.toLocaleString()}
+                  </span>
+                  <span className="font-settings font-extrabold text-[12px] text-[#5c3608]">
+                    {remainingScore > 0 ? `/ ${level.targetScore.toLocaleString()}` : 'Goal met!'}
+                  </span>
+                </>
               )}
             </div>
           </div>
 
-          {/* Right: Settings & Pause */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              type="button"
-              onClick={onOpenSettings}
-              aria-label="Open Settings"
-              title="Settings"
-              className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-gradient-to-b from-[#3b82f6] to-[#1d4ed8] hover:from-[#2563eb] hover:to-[#1e40af] text-white border-2 border-[#93c5fd] shadow flex items-center justify-center cursor-pointer transition-transform active:scale-95"
-            >
-              <Settings className="w-5 h-5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                soundEngine.playButton();
-                setModalState('PAUSED');
-              }}
-              aria-label="Pause game"
-              title="Pause Game"
-              className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-white/90 hover:bg-white text-[#b3125d] shadow flex items-center justify-center cursor-pointer transition-transform active:scale-95"
-            >
-              <Pause className="w-5 h-5" />
-            </button>
-          </div>
+          {/* Right: Glossy Pause Button (>= 48px tap target) */}
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.playButton();
+              setModalState('PAUSED');
+            }}
+            aria-label="Pause game"
+            title="Pause Game"
+            className="w-12 h-12 min-w-[48px] min-h-[48px] rounded-full bg-gradient-to-b from-[#ffffff] to-[#ffe1f0] border-2 border-white text-[#8f0b4a] shadow-[0_4px_0_#b5266c,0_6px_12px_rgba(120,10,60,0.22)] flex items-center justify-center cursor-pointer transition-transform active:translate-y-0.5 shrink-0"
+          >
+            <Pause className="w-5 h-5 fill-[#8f0b4a]" />
+          </button>
         </div>
       </header>
 
-      {/* Center 8x8 Match-3 Game Grid */}
-      <main className="relative z-10 flex-1 flex items-center justify-center px-2 sm:px-4 py-2 min-h-0">
+      {/* Center 8x8 Match-3 Game Grid: Unified Translucent Blue Panel (Zero Outer Ring, Soft Inner Glow) */}
+      <main className="relative z-10 flex-1 flex items-center justify-center px-2 py-1 min-h-0">
         <div
-          className={`relative aspect-square w-[min(94vw,62vh,520px)] max-w-full rounded-2xl p-1.5 sm:p-2.5 bg-[#1b3957]/88 border-4 border-[#90d8f0]/80 shadow-[0_14px_34px_rgba(8,36,64,0.42)] ${
+          className={`relative aspect-square w-[min(calc(100vw-16px),calc(100dvh-204px),520px)] max-w-full p-[6px] sm:p-2 ${
             shaking ? 'animate-board-shake' : ''
           }`}
           onPointerMove={handleBoardPointerMove}
           onPointerUp={handleBoardPointerUp}
           onPointerCancel={handleBoardPointerUp}
-          style={{ touchAction: 'none' }}
+          style={{
+            touchAction: 'none',
+            borderRadius: '22px',
+            backgroundColor: 'rgba(40, 100, 170, 0.62)',
+            boxShadow:
+              'inset 0 0 24px rgba(160, 220, 255, 0.18), inset 0 1px 0 rgba(235, 250, 255, 0.42), 0 16px 34px rgba(6, 36, 58, 0.34)',
+          }}
         >
-          {/* 8x8 Checkerboard Cells */}
-          <div className="relative w-full h-full grid grid-cols-8 grid-rows-8 gap-0.5 rounded-xl overflow-hidden">
+          {/* 8x8 Subtle Grid (1px rgba(255,255,255,0.06) lines & 3-4% checker over unified panel) */}
+          <div className="relative w-full h-full grid grid-cols-8 grid-rows-8 rounded-[16px] overflow-hidden">
             {grid.map((rowArr, r) =>
               rowArr.map((cell, c) => {
                 const isSelected = selected?.row === r && selected?.col === c;
@@ -926,7 +1060,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 if (isSwappingA && swappingPair) {
                   const dx = (swappingPair.b.col - swappingPair.a.col) * 100;
                   const dy = (swappingPair.b.row - swappingPair.a.row) * 100;
-                  swapTransform = `translate3d(${dx}%, ${dy}%, 0) scale(1.06)`;
+                  swapTransform = `translate3d(${dx}%, ${dy}%, 0)`;
                 } else if (isSwappingB && swappingPair) {
                   const dx = (swappingPair.a.col - swappingPair.b.col) * 100;
                   const dy = (swappingPair.a.row - swappingPair.b.row) * 100;
@@ -945,12 +1079,30 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         ? `${CANDY_HEX[cell.color].label}${cell.special !== 'none' ? ` (${cell.special})` : ''} at row ${r + 1}, column ${c + 1}`
                         : `Empty cell ${r + 1}, ${c + 1}`
                     }
-                    className={`relative w-full h-full flex items-center justify-center p-0.5 sm:p-1 transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-white ${
-                      checkerDark ? 'bg-[#1f4266]/90' : 'bg-[#2a527a]/90'
-                    } ${isSwappingA ? 'z-20' : isSwappingB ? 'z-10' : ''} ${
-                      isSelected ? 'bg-[#4682b4]/95 ring-2 ring-inset ring-yellow-300 z-10' : ''
-                    } ${hammerActive ? 'hover:bg-rose-500/40 cursor-crosshair' : 'cursor-pointer'}`}
+                    className={`relative w-full h-full flex items-center justify-center p-0 overflow-visible focus-visible:outline-2 focus-visible:outline-white ${
+                      isSwappingA ? 'z-20' : isSwappingB ? 'z-10' : isSelected ? 'z-10' : ''
+                    } ${hammerActive ? 'hover:bg-rose-500/30 cursor-crosshair' : 'cursor-pointer'}`}
+                    style={{
+                      backgroundColor: checkerDark
+                        ? 'rgba(8, 28, 60, 0.055)'
+                        : 'rgba(255, 255, 255, 0.02)',
+                      borderRight: c < 7 ? '1px solid rgba(255, 255, 255, 0.06)' : undefined,
+                      borderBottom: r < 7 ? '1px solid rgba(255, 255, 255, 0.06)' : undefined,
+                    }}
                   >
+                    {/* Selected Tile Soft White Radial Glow (Zero Square Border, Pure Opacity Pulse) */}
+                    {isSelected && (
+                      <span
+                        className="animate-selected-glow pointer-events-none absolute -inset-1 rounded-full"
+                        style={{
+                          background:
+                            'radial-gradient(circle, rgba(255,255,255,0.68) 0%, rgba(230,248,255,0.28) 48%, rgba(255,255,255,0) 74%)',
+                        }}
+                        aria-hidden="true"
+                      />
+                    )}
+
+                    {/* Candy Tile: 92% fill at rest; 104% (~1.13x native raster size) when selected for zero scale-up blur */}
                     {cell && (
                       <div
                         key={cell.id}
@@ -960,7 +1112,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                             : {}),
                           ...(swapTransform ? { transform: swapTransform } : {}),
                         }}
-                        className={`w-full h-full transition-transform duration-150 ease-out ${
+                        className={`flex items-center justify-center transition-transform duration-150 ease-out ${
+                          isSelected ? 'w-[104%] h-[104%]' : 'w-[92%] h-[92%]'
+                        } ${
                           cell.isMatched
                             ? 'animate-candy-pop'
                             : isDropping
@@ -969,9 +1123,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                             ? 'animate-candy-selected'
                             : isHinted
                             ? 'animate-candy-hint'
-                            : isSwappingA || isSwappingB
-                            ? ''
-                            : 'hover:scale-105'
+                            : ''
                         }`}
                       >
                         <CandySprite color={cell.color} special={cell.special} />
@@ -985,11 +1137,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             {/* High-DPI Canvas Particle, Beam & Lightning VFX Layer */}
             <VfxCanvas ref={vfxRef} />
 
-            {/* Floating Score Popups */}
+            {/* Floating Score Popups (Pure translate3d + opacity, zero scale blur on text) */}
             {floatingScores.map((fs) => (
               <div
                 key={fs.id}
-                className="pointer-events-none absolute z-30 font-display font-bold text-lg sm:text-2xl text-white text-stroke-dark animate-float-score tabular-nums"
+                className="pointer-events-none absolute z-30 font-settings-heading font-extrabold text-lg sm:text-2xl text-white text-stroke-dark animate-float-score tabular-nums"
                 style={{
                   left: `${((fs.col + 0.5) / GRID_SIZE) * 100}%`,
                   top: `${((fs.row + 0.5) / GRID_SIZE) * 100}%`,
@@ -1000,22 +1152,22 @@ export const GameBoard: React.FC<GameBoardProps> = ({
               </div>
             ))}
 
-            {/* Praise Word Comic Banner ("Sweet!", "Delicious!", "Divine!", "Sugar Crush!") */}
+            {/* Praise Word Comic Banner (Pure translate3d + opacity, crisp outlined text) */}
             {praisePopup && (
               <div
                 key={praisePopup.id}
                 className="pointer-events-none absolute left-1/2 top-1/2 z-40 animate-praise-pop"
               >
-                <div className="font-display font-bold text-3xl sm:text-5xl text-[#ffe347] text-stroke-gold whitespace-nowrap drop-shadow-xl">
+                <div className="font-settings-heading font-extrabold text-3xl sm:text-5xl text-[#ffe347] text-stroke-gold whitespace-nowrap">
                   {praisePopup.word}
                 </div>
               </div>
             )}
 
-            {/* Status Banner (e.g. Deadlock Reshuffle / Hammer Prompt) */}
+            {/* Status Banner (Deadlock Reshuffle / Hammer Prompt) */}
             {(statusBanner || hammerActive) && (
               <div className="pointer-events-none absolute inset-x-4 bottom-3 z-30 flex justify-center">
-                <div className="bg-slate-900/90 text-white text-xs sm:text-sm font-bold px-4 py-1.5 rounded-xl shadow-lg">
+                <div className="bg-[#0a1f3d]/94 border border-[#9be3ff]/55 text-white text-xs sm:text-sm font-extrabold px-4 py-1.5 rounded-full shadow-lg">
                   {hammerActive ? 'Tap any candy on the board to smash it!' : statusBanner}
                 </div>
               </div>
@@ -1024,89 +1176,148 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         </div>
       </main>
 
-      {/* Bottom Booster Tray (Screenshot 2 Inspired) */}
-      <footer className="relative z-20 shrink-0 pb-3 pt-1 px-3 flex items-center justify-center">
-        <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-2.5 bg-[#ffe9f2]/95 border-2 border-[#f29ec6] px-3 sm:px-4 py-1.5 rounded-full shadow-lg">
+      {/* Bottom Booster Tray (Safe Area Bottom Tray Padding Prevents Edge Clipping) */}
+      <footer className="safe-area-bottom-tray relative z-20 shrink-0 pt-1 px-3 flex items-center justify-center">
+        <div className="w-full max-w-[520px] flex items-center justify-between gap-2.5">
+          {/* Left: Round Glossy Pink Settings Gear (>= 48px tap target) */}
           <button
             type="button"
-            disabled={inventory.hammers <= 0 || isBusy}
-            onClick={() => {
-              soundEngine.playButton();
-              setHammerActive((a) => !a);
-              setSelected(null);
-            }}
-            className={`relative flex items-center gap-1 px-3 py-1.5 rounded-full font-bold text-xs sm:text-sm transition-transform active:scale-95 cursor-pointer ${
-              hammerActive
-                ? 'bg-[#e61e78] text-white ring-2 ring-yellow-300'
-                : inventory.hammers > 0
-                ? 'bg-white text-[#9e1054] hover:bg-pink-50 shadow-xs'
-                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-            }`}
-            title="Smash any single candy without using a move"
+            onClick={onOpenSettings}
+            aria-label="Open Settings"
+            title="Settings"
+            className="candy-btn-pink relative overflow-hidden w-12 h-12 min-w-[48px] min-h-[48px] rounded-full text-white flex items-center justify-center cursor-pointer shrink-0"
           >
-            <Hammer className="w-4 h-4" />
-            <span>Hammer</span>
-            <span className="tabular-nums font-extrabold">({inventory.hammers})</span>
+            <span
+              className="pointer-events-none absolute top-1 left-2 right-2 h-2.5 rounded-full bg-white/35"
+              aria-hidden="true"
+            />
+            <Settings className="relative z-10 w-6 h-6 stroke-[2.4]" />
           </button>
 
-          <button
-            type="button"
-            disabled={inventory.shuffles <= 0 || isBusy}
-            onClick={handleManualShuffle}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-full font-bold text-xs sm:text-sm transition-transform active:scale-95 cursor-pointer ${
-              inventory.shuffles > 0
-                ? 'bg-white text-[#0e67c2] hover:bg-sky-50 shadow-xs'
-                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-            }`}
-            title="Shuffle all candies without using a move"
-          >
-            <Shuffle className="w-4 h-4" />
-            <span>Shuffle</span>
-            <span className="tabular-nums font-extrabold">({inventory.shuffles})</span>
-          </button>
+          {/* Main Cream Rounded Booster Bar with High-Contrast Round Glossy Bubble Buttons */}
+          <div className="flex-1 flex items-center justify-around gap-2 bg-gradient-to-b from-[#fffef8] to-[#ffebc7] border-[3px] border-[#f2c372] px-3 py-1.5 rounded-full shadow-[0_5px_0_#bd8124,0_10px_22px_rgba(4,28,46,0.34),inset_0_2px_2px_rgba(255,255,255,0.95)]">
+            {/* Hammer Bubble Button */}
+            <button
+              type="button"
+              disabled={inventory.hammers <= 0 || isBusy}
+              onClick={() => {
+                soundEngine.playButton();
+                setHammerActive((a) => !a);
+                setSelected(null);
+              }}
+              aria-label={`Hammer booster, ${inventory.hammers} left`}
+              title="Hammer: smash any candy"
+              className={`relative w-12 h-12 min-w-[48px] min-h-[48px] rounded-full flex items-center justify-center transition-transform active:translate-y-0.5 ${
+                inventory.hammers <= 0
+                  ? 'bg-gradient-to-b from-[#cbd5e1] to-[#94a3b8] border-2 border-white shadow-[0_3px_0_#475569] text-[#1e293b] cursor-not-allowed'
+                  : hammerActive
+                  ? 'bg-gradient-to-b from-[#ff7ac0] to-[#d91670] border-2 border-[#fde047] ring-3 ring-[#fde047] shadow-[0_4px_0_#8c0743] text-white cursor-pointer'
+                  : 'bg-gradient-to-b from-[#ff72b8] via-[#e61e78] to-[#bf0e5f] border-2 border-white shadow-[0_4px_0_#8c0743,inset_0_2px_2px_rgba(255,255,255,0.55)] text-white cursor-pointer'
+              }`}
+            >
+              <span
+                className="pointer-events-none absolute top-1 left-2 right-2 h-2.5 rounded-full bg-white/35"
+                aria-hidden="true"
+              />
+              <Hammer className="relative z-10 w-5 h-5 stroke-[2.5]" />
+              <span
+                className={`absolute -bottom-1 -right-1 min-w-[21px] h-[21px] px-1 rounded-full border-2 border-white flex items-center justify-center text-[11px] font-extrabold tabular-nums shadow ${
+                  inventory.hammers > 0 ? 'bg-[#091c36] text-white' : 'bg-[#475569] text-white'
+                }`}
+              >
+                {inventory.hammers > 0 ? inventory.hammers : <Lock className="w-2.5 h-2.5" />}
+              </span>
+            </button>
 
-          <button
-            type="button"
-            disabled={inventory.bonusMoves <= 0 || isBusy}
-            onClick={handleUseBonusMoves}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-full font-bold text-xs sm:text-sm transition-transform active:scale-95 cursor-pointer ${
-              inventory.bonusMoves > 0
-                ? 'bg-white text-[#158f35] hover:bg-emerald-50 shadow-xs'
-                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-            }`}
-            title="Grant +5 extra moves in this level"
-          >
-            <PlusCircle className="w-4 h-4" />
-            <span>+5 Moves</span>
-            <span className="tabular-nums font-extrabold">({inventory.bonusMoves})</span>
-          </button>
+            {/* Shuffle Bubble Button */}
+            <button
+              type="button"
+              disabled={inventory.shuffles <= 0 || isBusy}
+              onClick={handleManualShuffle}
+              aria-label={`Shuffle booster, ${inventory.shuffles} left`}
+              title="Shuffle all candies"
+              className={`relative w-12 h-12 min-w-[48px] min-h-[48px] rounded-full flex items-center justify-center transition-transform active:translate-y-0.5 ${
+                inventory.shuffles <= 0
+                  ? 'bg-gradient-to-b from-[#cbd5e1] to-[#94a3b8] border-2 border-white shadow-[0_3px_0_#475569] text-[#1e293b] cursor-not-allowed'
+                  : 'bg-gradient-to-b from-[#5bc4ff] via-[#1c88eb] to-[#0e62b8] border-2 border-white shadow-[0_4px_0_#08417f,inset_0_2px_2px_rgba(255,255,255,0.55)] text-white cursor-pointer'
+              }`}
+            >
+              <span
+                className="pointer-events-none absolute top-1 left-2 right-2 h-2.5 rounded-full bg-white/35"
+                aria-hidden="true"
+              />
+              <Shuffle className="relative z-10 w-5 h-5 stroke-[2.5]" />
+              <span
+                className={`absolute -bottom-1 -right-1 min-w-[21px] h-[21px] px-1 rounded-full border-2 border-white flex items-center justify-center text-[11px] font-extrabold tabular-nums shadow ${
+                  inventory.shuffles > 0 ? 'bg-[#091c36] text-white' : 'bg-[#475569] text-white'
+                }`}
+              >
+                {inventory.shuffles > 0 ? inventory.shuffles : <Lock className="w-2.5 h-2.5" />}
+              </span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              soundEngine.playButton();
-              onBackToMap();
-            }}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs sm:text-sm shadow-xs cursor-pointer transition-transform active:scale-95"
-          >
-            <MapIcon className="w-4 h-4" />
-            <span className="hidden sm:inline">Map</span>
-          </button>
+            {/* +5 Moves Bubble Button */}
+            <button
+              type="button"
+              disabled={inventory.bonusMoves <= 0 || isBusy}
+              onClick={handleUseBonusMoves}
+              aria-label={`+5 Moves booster, ${inventory.bonusMoves} left`}
+              title="Add +5 extra moves"
+              className={`relative w-12 h-12 min-w-[48px] min-h-[48px] rounded-full flex items-center justify-center transition-transform active:translate-y-0.5 ${
+                inventory.bonusMoves <= 0
+                  ? 'bg-gradient-to-b from-[#cbd5e1] to-[#94a3b8] border-2 border-white shadow-[0_3px_0_#475569] text-[#1e293b] cursor-not-allowed'
+                  : 'bg-gradient-to-b from-[#64eb84] via-[#22b84a] to-[#128a32] border-2 border-white shadow-[0_4px_0_#0b5c20,inset_0_2px_2px_rgba(255,255,255,0.55)] text-white cursor-pointer'
+              }`}
+            >
+              <span
+                className="pointer-events-none absolute top-1 left-2 right-2 h-2.5 rounded-full bg-white/35"
+                aria-hidden="true"
+              />
+              <PlusCircle className="relative z-10 w-5 h-5 stroke-[2.5]" />
+              <span
+                className={`absolute -bottom-1 -right-1 min-w-[21px] h-[21px] px-1 rounded-full border-2 border-white flex items-center justify-center text-[11px] font-extrabold tabular-nums shadow ${
+                  inventory.bonusMoves > 0 ? 'bg-[#091c36] text-white' : 'bg-[#475569] text-white'
+                }`}
+              >
+                {inventory.bonusMoves > 0 ? inventory.bonusMoves : <Lock className="w-2.5 h-2.5" />}
+              </span>
+            </button>
+
+            {/* Map Bubble Button */}
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playButton();
+                onBackToMap();
+              }}
+              aria-label="Back to Level Map"
+              title="Level Map"
+              className="relative w-12 h-12 min-w-[48px] min-h-[48px] rounded-full bg-gradient-to-b from-[#ffca52] via-[#f59e0b] to-[#d97706] border-2 border-white shadow-[0_4px_0_#92400e,inset_0_2px_2px_rgba(255,255,255,0.55)] text-white flex items-center justify-center cursor-pointer transition-transform active:translate-y-0.5"
+            >
+              <span
+                className="pointer-events-none absolute top-1 left-2 right-2 h-2.5 rounded-full bg-white/35"
+                aria-hidden="true"
+              />
+              <MapIcon className="relative z-10 w-5 h-5 stroke-[2.5]" />
+            </button>
+          </div>
         </div>
       </footer>
 
       {/* Pause / Victory / Game Over Modal */}
       {modalState !== 'NONE' && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#061529]/62 p-4"
           role="dialog"
           aria-modal="true"
         >
           <div className="w-full max-w-sm rounded-3xl bg-[#fff7fb] border-4 border-[#ff8ec4] shadow-2xl p-6 text-center flex flex-col items-center gap-4">
             {modalState === 'PAUSED' && (
               <>
-                <h2 className="font-display font-bold text-3xl text-[#b3125d]">Game Paused</h2>
-                <p className="text-sm font-bold text-slate-600">{level.description}</p>
+                <h2 className="font-settings-heading font-extrabold text-3xl text-[#b3125d]">
+                  Game Paused
+                </h2>
+                <p className="text-sm font-bold text-[#334155]">{level.description}</p>
                 <div className="w-full flex flex-col gap-2.5 mt-1">
                   <button
                     type="button"
@@ -1114,7 +1325,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                       soundEngine.playButton();
                       setModalState('NONE');
                     }}
-                    className="candy-btn-pink w-full py-3 rounded-full font-display font-bold text-xl text-white flex items-center justify-center gap-2 cursor-pointer"
+                    className="candy-btn-pink w-full min-h-[50px] py-3 rounded-full font-settings-heading font-extrabold text-xl text-white flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <Play className="w-5 h-5 fill-white" />
                     <span>Resume</span>
@@ -1122,7 +1333,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   <button
                     type="button"
                     onClick={onOpenSettings}
-                    className="candy-btn-blue w-full py-2.5 rounded-full font-display font-semibold text-lg text-white flex items-center justify-center gap-2 cursor-pointer"
+                    className="candy-btn-blue w-full min-h-[48px] py-2.5 rounded-full font-settings-heading font-extrabold text-lg text-white flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <Settings className="w-5 h-5" />
                     <span>Settings</span>
@@ -1131,9 +1342,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     type="button"
                     onClick={() => {
                       soundEngine.playButton();
-                      resetLevel();
+                      resetLevel(false);
                     }}
-                    className="candy-btn-blue w-full py-2.5 rounded-full font-display font-semibold text-lg text-white flex items-center justify-center gap-2 cursor-pointer"
+                    className="candy-btn-blue w-full min-h-[48px] py-2.5 rounded-full font-settings-heading font-extrabold text-lg text-white flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <RotateCcw className="w-5 h-5" />
                     <span>Restart Level</span>
@@ -1144,9 +1355,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                       soundEngine.playButton();
                       onBackToMap();
                     }}
-                    className="w-full py-2.5 rounded-full font-bold text-slate-700 bg-slate-200 hover:bg-slate-300 transition-colors cursor-pointer"
+                    className="w-full min-h-[48px] py-2.5 rounded-full font-bold text-[#1e3a5f] bg-slate-200 hover:bg-slate-300 transition-colors cursor-pointer"
                   >
-                    Kingdom Map
+                    Level Map
                   </button>
                 </div>
               </>
@@ -1154,14 +1365,16 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
             {modalState === 'VICTORY' && (
               <>
-                <h2 className="font-display font-bold text-3xl text-[#b3125d]">Level Complete!</h2>
+                <h2 className="font-settings-heading font-extrabold text-3xl text-[#b3125d]">
+                  Level Complete!
+                </h2>
                 <div className="flex items-center justify-center gap-2 my-1">
                   {[1, 2, 3].map((s) => (
                     <Star
                       key={s}
                       className={`w-11 h-11 transition-transform ${
                         Math.max(1, earnedStars) >= s
-                          ? 'fill-amber-400 text-amber-600 scale-110 drop-shadow'
+                          ? 'fill-amber-400 text-amber-600 scale-110'
                           : 'fill-slate-200 text-slate-300'
                       }`}
                     />
@@ -1171,7 +1384,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   <div className="text-xs font-extrabold uppercase tracking-wider text-[#9e1054]">
                     Final Score
                   </div>
-                  <div className="font-display font-bold text-3xl text-[#b3125d] tabular-nums">
+                  <div className="font-settings-heading font-extrabold text-3xl text-[#b3125d] tabular-nums">
                     {score.toLocaleString()}
                   </div>
                 </div>
@@ -1183,7 +1396,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         soundEngine.playButton();
                         onNextLevel();
                       }}
-                      className="candy-btn-green w-full py-3 rounded-full font-display font-bold text-xl text-white cursor-pointer"
+                      className="candy-btn-green w-full min-h-[50px] py-3 rounded-full font-settings-heading font-extrabold text-xl text-white cursor-pointer"
                     >
                       Next Level
                     </button>
@@ -1192,9 +1405,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     type="button"
                     onClick={() => {
                       soundEngine.playButton();
-                      resetLevel();
+                      resetLevel(false);
                     }}
-                    className="candy-btn-pink w-full py-2.5 rounded-full font-display font-semibold text-lg text-white cursor-pointer"
+                    className="candy-btn-pink w-full min-h-[48px] py-2.5 rounded-full font-settings-heading font-extrabold text-lg text-white cursor-pointer"
                   >
                     Play Again
                   </button>
@@ -1204,9 +1417,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                       soundEngine.playButton();
                       onBackToMap();
                     }}
-                    className="w-full py-2.5 rounded-full font-bold text-slate-700 bg-slate-200 hover:bg-slate-300 transition-colors cursor-pointer"
+                    className="w-full min-h-[48px] py-2.5 rounded-full font-bold text-[#1e3a5f] bg-slate-200 hover:bg-slate-300 transition-colors cursor-pointer"
                   >
-                    Kingdom Map
+                    Level Map
                   </button>
                 </div>
               </>
@@ -1214,9 +1427,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
             {modalState === 'GAME_OVER' && (
               <>
-                <h2 className="font-display font-bold text-3xl text-rose-600">Out of Moves!</h2>
-                <p className="text-sm font-bold text-slate-600">
-                  You scored {score.toLocaleString()} points. Target was {level.targetScore.toLocaleString()}.
+                <h2 className="font-settings-heading font-extrabold text-3xl text-rose-600">
+                  Out of Moves!
+                </h2>
+                <p className="text-sm font-bold text-[#334155]">
+                  You scored {score.toLocaleString()} points. Target was{' '}
+                  {level.targetScore.toLocaleString()}.
                 </p>
                 {level.order && (
                   <p className="text-xs font-extrabold text-[#9e1054]">
@@ -1229,7 +1445,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     <button
                       type="button"
                       onClick={handleUseBonusMoves}
-                      className="candy-btn-green w-full py-3 rounded-full font-display font-bold text-xl text-white flex items-center justify-center gap-2 cursor-pointer"
+                      className="candy-btn-green w-full min-h-[50px] py-3 rounded-full font-settings-heading font-extrabold text-xl text-white flex items-center justify-center gap-2 cursor-pointer"
                     >
                       <PlusCircle className="w-5 h-5" />
                       <span>Use +5 Extra Moves ({inventory.bonusMoves})</span>
@@ -1239,9 +1455,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     type="button"
                     onClick={() => {
                       soundEngine.playButton();
-                      resetLevel();
+                      resetLevel(false);
                     }}
-                    className="candy-btn-pink w-full py-3 rounded-full font-display font-bold text-xl text-white cursor-pointer"
+                    className="candy-btn-pink w-full min-h-[50px] py-3 rounded-full font-settings-heading font-extrabold text-xl text-white cursor-pointer"
                   >
                     Play Again
                   </button>
@@ -1251,9 +1467,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                       soundEngine.playButton();
                       onBackToMap();
                     }}
-                    className="w-full py-2.5 rounded-full font-bold text-slate-700 bg-slate-200 hover:bg-slate-300 transition-colors cursor-pointer"
+                    className="w-full min-h-[48px] py-2.5 rounded-full font-bold text-[#1e3a5f] bg-slate-200 hover:bg-slate-300 transition-colors cursor-pointer"
                   >
-                    Kingdom Map
+                    Level Map
                   </button>
                 </div>
               </>

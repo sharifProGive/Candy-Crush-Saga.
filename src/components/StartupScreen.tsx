@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { SplashScreen } from '@capacitor/splash-screen';
 import { soundEngine } from '../audio/soundEngine';
+import { preloadAllCandySprites } from '../game/candySprites';
+import { SugarPopBrand } from './SugarPopBrand';
 
 interface StartupScreenProps {
   onTapStart: () => void;
@@ -13,21 +15,6 @@ const LOADING_TIPS: string[] = [
   'Match 5 in a line for a super Color Bomb!',
   'Combine two special candies for a huge Sugar Pop blast!',
   'Save extra moves to earn 3 shining Stars!',
-];
-
-const SPARKLES: Array<{
-  top: string;
-  left: string;
-  size: number;
-  delay: string;
-  duration: string;
-}> = [
-  { top: '-6%', left: '12%', size: 28, delay: '0s', duration: '2.0s' },
-  { top: '6%', left: '88%', size: 22, delay: '0.45s', duration: '2.3s' },
-  { top: '38%', left: '-10%', size: 24, delay: '0.9s', duration: '2.1s' },
-  { top: '52%', left: '96%', size: 30, delay: '0.25s', duration: '1.9s' },
-  { top: '86%', left: '4%', size: 20, delay: '1.15s', duration: '2.4s' },
-  { top: '88%', left: '84%', size: 26, delay: '0.7s', duration: '2.2s' },
 ];
 
 const MIN_LOADING_DURATION_MS = 2000;
@@ -77,13 +64,13 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
     return () => window.clearInterval(interval);
   }, []);
 
-  // Real asset preloading (logo images, fonts, 15 voice clips, BGM metadata) + 2-second minimum ramp
+  // Real asset preloading (logo images, fonts, 3x candy sprites, 15 voice clips, BGM metadata) + 2-second minimum ramp
   useEffect(() => {
     let cancelled = false;
     const startTime = performance.now();
 
     let completedUnits = 0;
-    const baseUnits = 3; // logo-512, logo, fonts
+    const baseUnits = 4; // logo-512, logo, fonts, candy sprites
     let audioTotal = 17;
     let audioLoaded = 0;
 
@@ -99,6 +86,10 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
         updateRealProgress();
       }),
       preloadImage('./logo.png').finally(() => {
+        completedUnits += 1;
+        updateRealProgress();
+      }),
+      preloadAllCandySprites().finally(() => {
         completedUnits += 1;
         updateRealProgress();
       }),
@@ -172,7 +163,7 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
 
   return (
     <div
-      className={`sugar-pop-stripes relative w-full h-full overflow-hidden flex flex-col items-center justify-between px-6 py-8 sm:py-10 transition-[transform,opacity] duration-350 ease-out ${
+      className={`sugar-pop-stripes safe-area-top safe-area-bottom relative w-full h-full overflow-hidden flex flex-col items-center justify-between px-6 py-8 sm:py-10 transition-[transform,opacity] duration-350 ease-out ${
         isExiting ? 'opacity-0 scale-108 pointer-events-none' : 'opacity-100 scale-100'
       }`}
     >
@@ -189,95 +180,9 @@ export const StartupScreen: React.FC<StartupScreenProps> = ({
       {/* Top Spacer for Vertical Balance */}
       <div className="h-4 shrink-0" aria-hidden="true" />
 
-      {/* Center Hero: Animated Sugar Pop Logo + Sparkles + Bubble Title */}
+      {/* Center Hero: Reusable Sugar Pop Logo + Sparkles + Bubble Title */}
       <div className="relative z-10 flex flex-col items-center justify-center w-full max-w-sm">
-        <div className="relative flex items-center justify-center w-48 h-48 sm:w-56 sm:h-56">
-          {/* Twinkling 4-Point SVG Sparkles Around Logo */}
-          {SPARKLES.map((sp, idx) => (
-            <svg
-              key={idx}
-              viewBox="0 0 32 32"
-              width={sp.size}
-              height={sp.size}
-              className="animate-sugar-sparkle pointer-events-none absolute"
-              style={{
-                top: sp.top,
-                left: sp.left,
-                animationDelay: sp.delay,
-                animationDuration: sp.duration,
-              }}
-              aria-hidden="true"
-            >
-              <path
-                d="M16 1 L19.8 12.2 L31 16 L19.8 19.8 L16 31 L12.2 19.8 L1 16 L12.2 12.2 Z"
-                fill="#fffbeb"
-              />
-            </svg>
-          ))}
-
-          {/* Floating & Gently Pulsing Sugar Pop Logo */}
-          <div className="animate-sugar-logo relative w-44 h-44 sm:w-52 sm:h-52 drop-shadow-[0_18px_28px_rgba(8,38,94,0.42)]">
-            <img
-              src="./logo-512.png"
-              alt="Sugar Pop"
-              width={512}
-              height={512}
-              onLoad={hideNativeSplash}
-              className="w-full h-full object-contain select-none pointer-events-none"
-              draggable={false}
-            />
-          </div>
-        </div>
-
-        {/* Bold Bubble-Letter "Sugar Pop" SVG Title */}
-        <div className="w-[min(86vw,340px)] mt-3 drop-shadow-[0_8px_14px_rgba(12,42,102,0.38)]">
-          <svg
-            viewBox="0 0 420 112"
-            className="w-full h-auto overflow-visible"
-            role="img"
-            aria-label="Sugar Pop"
-          >
-            <defs>
-              <linearGradient id="sugarPopTitleFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#fff7a8" />
-                <stop offset="42%" stopColor="#ff9bd2" />
-                <stop offset="100%" stopColor="#ff2e93" />
-              </linearGradient>
-            </defs>
-            {/* Outer Deep Navy-Blue Bubble Outline */}
-            <text
-              x="210"
-              y="84"
-              textAnchor="middle"
-              className="font-settings-heading font-extrabold"
-              fontSize="74"
-              letterSpacing="1.5"
-              fill="#0c3278"
-              stroke="#0c3278"
-              strokeWidth="20"
-              strokeLinejoin="round"
-              paintOrder="stroke fill"
-            >
-              Sugar Pop
-            </text>
-            {/* Inner Crisp White Glossy Rim */}
-            <text
-              x="210"
-              y="80"
-              textAnchor="middle"
-              className="font-settings-heading font-extrabold"
-              fontSize="74"
-              letterSpacing="1.5"
-              fill="url(#sugarPopTitleFill)"
-              stroke="#ffffff"
-              strokeWidth="10"
-              strokeLinejoin="round"
-              paintOrder="stroke fill"
-            >
-              Sugar Pop
-            </text>
-          </svg>
-        </div>
+        <SugarPopBrand size="startup" onLogoLoad={hideNativeSplash} />
 
         {/* Loading Progress Bar OR Pulsing "Tap to start" Button */}
         <div className="w-full max-w-[300px] mt-7 min-h-[86px] flex flex-col items-center justify-center">

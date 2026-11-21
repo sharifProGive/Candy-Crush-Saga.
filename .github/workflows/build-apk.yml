@@ -38,7 +38,7 @@ jobs:
 
       - name: Install Capacitor 7, generate Sugar Pop Android assets & sync project
         run: |
-          npm install --no-save --legacy-peer-deps @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/splash-screen@7
+          npm install --no-save --legacy-peer-deps @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/splash-screen@7 @capacitor/status-bar@7
           if [ ! -f capacitor.config.json ] && [ ! -f capacitor.config.ts ]; then
             node -e 'const fs=require("fs");fs.writeFileSync("capacitor.config.json",JSON.stringify({appId:"com.sugarpop",appName:"Sugar Pop",webDir:"dist",server:{androidScheme:"https"},plugins:{SplashScreen:{launchShowDuration:0,launchAutoHide:false,backgroundColor:"#2F8CF0",androidSplashResourceName:"splash",androidScaleType:"CENTER_CROP",showSpinner:false,splashFullScreen:true,splashImmersive:true}}},null,2))'
           fi

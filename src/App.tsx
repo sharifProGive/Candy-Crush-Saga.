@@ -3,6 +3,7 @@ import { soundEngine } from './audio/soundEngine';
 import { DailyRewardModal } from './components/DailyRewardModal';
 import { GameBoard } from './components/GameBoard';
 import { LevelMap } from './components/LevelMap';
+import { SelectedStartBoosters } from './components/LevelStartModal';
 import { SettingsModal } from './components/SettingsModal';
 import { StartupScreen } from './components/StartupScreen';
 import { TitleScreen } from './components/TitleScreen';
@@ -15,6 +16,7 @@ import {
   saveDailyRewardState,
 } from './game/dailyRewards';
 import { LEVELS } from './game/levels';
+import { initFullscreenStatusBar } from './game/performanceGuard';
 import {
   detectStereoAudioCapability,
   GameSettings,
@@ -24,7 +26,7 @@ import {
 } from './game/settings';
 import { GameScreen, LevelProgress } from './game/types';
 
-const STORAGE_KEY = 'candy_crush_saga_progress_v1';
+const STORAGE_KEY = 'sugar_pop_progress_v1';
 
 function loadProgress(): Record<number, LevelProgress> {
   try {
@@ -43,12 +45,20 @@ export default function App() {
   const [showDailyModal, setShowDailyModal] = useState<boolean>(false);
   const [justClaimedDay, setJustClaimedDay] = useState<number | null>(null);
   const [activeLevelId, setActiveLevelId] = useState<number>(1);
+  const [launchExtraMoves, setLaunchExtraMoves] = useState<number>(0);
+  const [launchHammerArmed, setLaunchHammerArmed] = useState<boolean>(false);
+  const [launchOpeningShuffle, setLaunchOpeningShuffle] = useState<boolean>(false);
   const [celebratedThreeStarLevelId, setCelebratedThreeStarLevelId] = useState<number | null>(null);
   const [stereoCapability] = useState<StereoCapability>(() => detectStereoAudioCapability());
   const [settings, setSettings] = useState<GameSettings>(() =>
     loadGameSettings(stereoCapability.supported)
   );
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+
+  // Hide native Android/iOS status bar on startup for immersive fullscreen play
+  useEffect(() => {
+    void initFullscreenStatusBar();
+  }, []);
 
   const highestUnlockedLevel = useMemo(() => {
     let unlocked = 1;
@@ -78,7 +88,7 @@ export default function App() {
     soundEngine.applySettings(settings, stereoCapability.supported);
   }, [settings, stereoCapability.supported]);
 
-  // Automatically switch between File 1 (Lobby/Home) and File 2 (Gameplay) once past STARTUP
+  // Automatically switch between File 1 (Lobby/Home) and File 2/3 (Gameplay) once past STARTUP
   useEffect(() => {
     if (screen === 'STARTUP') return;
     const targetTrack = screen === 'PLAYING' ? 'gameplay' : 'lobby';
@@ -157,12 +167,62 @@ export default function App() {
     setScreen('LEVEL_MAP');
   }, []);
 
-  const handleSelectLevel = useCallback((levelId: number) => {
-    soundEngine.unlock();
-    soundEngine.playButton();
-    setActiveLevelId(levelId);
-    setScreen('PLAYING');
-  }, []);
+  const handleConsumeBooster = useCallback(
+    (type: keyof PlayerInventory): boolean => {
+      if (dailyState.inventory[type] <= 0) return false;
+      const nextState: DailyRewardState = {
+        ...dailyState,
+        inventory: {
+          ...dailyState.inventory,
+          [type]: dailyState.inventory[type] - 1,
+        },
+      };
+      setDailyState(nextState);
+      saveDailyRewardState(nextState);
+      return true;
+    },
+    [dailyState]
+  );
+
+  const handleSelectLevel = useCallback(
+    (levelId: number, boosters?: SelectedStartBoosters) => {
+      soundEngine.unlock();
+      soundEngine.playButton();
+
+      let extraMoves = 0;
+      let openingShuffle = false;
+      const nextInventory = { ...dailyState.inventory };
+      let changed = false;
+
+      if (boosters?.bonusMoves && nextInventory.bonusMoves > 0) {
+        nextInventory.bonusMoves -= 1;
+        extraMoves = 5;
+        changed = true;
+      }
+
+      if (boosters?.shuffle && nextInventory.shuffles > 0) {
+        nextInventory.shuffles -= 1;
+        openingShuffle = true;
+        changed = true;
+      }
+
+      if (changed) {
+        const nextState: DailyRewardState = {
+          ...dailyState,
+          inventory: nextInventory,
+        };
+        setDailyState(nextState);
+        saveDailyRewardState(nextState);
+      }
+
+      setLaunchExtraMoves(extraMoves);
+      setLaunchHammerArmed(Boolean(boosters?.hammer && nextInventory.hammers > 0));
+      setLaunchOpeningShuffle(openingShuffle);
+      setActiveLevelId(levelId);
+      setScreen('PLAYING');
+    },
+    [dailyState]
+  );
 
   const handleLevelComplete = useCallback((levelId: number, score: number, stars: number) => {
     if (stars >= 3) {
@@ -182,6 +242,9 @@ export default function App() {
 
   const handleNextLevel = useCallback(() => {
     const nextId = Math.min(LEVELS.length, activeLevelId + 1);
+    setLaunchExtraMoves(0);
+    setLaunchHammerArmed(false);
+    setLaunchOpeningShuffle(false);
     setActiveLevelId(nextId);
   }, [activeLevelId]);
 
@@ -202,23 +265,6 @@ export default function App() {
     setJustClaimedDay(claimedDay.day);
     soundEngine.playFanfare();
   }, [dailyState]);
-
-  const handleConsumeBooster = useCallback(
-    (type: keyof PlayerInventory): boolean => {
-      if (dailyState.inventory[type] <= 0) return false;
-      const nextState: DailyRewardState = {
-        ...dailyState,
-        inventory: {
-          ...dailyState.inventory,
-          [type]: dailyState.inventory[type] - 1,
-        },
-      };
-      setDailyState(nextState);
-      saveDailyRewardState(nextState);
-      return true;
-    },
-    [dailyState]
-  );
 
   const activeLevel = LEVELS.find((l) => l.id === activeLevelId) ?? LEVELS[0];
 
@@ -249,6 +295,7 @@ export default function App() {
           highestUnlockedLevel={highestUnlockedLevel}
           celebratedThreeStarLevelId={celebratedThreeStarLevelId}
           dailyClaimable={dailyClaimable}
+          inventory={dailyState.inventory}
           onCelebrationDone={() => setCelebratedThreeStarLevelId(null)}
           onOpenSettings={handleOpenSettings}
           onOpenDailyRewards={handleOpenDailyRewards}
@@ -266,6 +313,9 @@ export default function App() {
           level={activeLevel}
           backgroundMusicEnabled={settings.backgroundMusic}
           inventory={dailyState.inventory}
+          initialExtraMoves={launchExtraMoves}
+          initialHammerArmed={launchHammerArmed}
+          initialOpeningShuffle={launchOpeningShuffle}
           onConsumeBooster={handleConsumeBooster}
           onOpenSettings={handleOpenSettings}
           onLevelComplete={handleLevelComplete}

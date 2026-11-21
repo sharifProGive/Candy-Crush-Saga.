@@ -64,7 +64,7 @@ export const DAILY_REWARD_DAYS: DailyRewardDay[] = [
   },
 ];
 
-const DAILY_STORAGE_KEY = 'candy_crush_saga_daily_v1';
+const DAILY_STORAGE_KEY = 'sugar_pop_daily_v1';
 
 export function getLocalDateKey(date: Date = new Date()): string {
   const y = date.getFullYear();

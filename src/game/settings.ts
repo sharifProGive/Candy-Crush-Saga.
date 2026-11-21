@@ -13,7 +13,7 @@ export interface StereoCapability {
   errorMessage: string | null;
 }
 
-const SETTINGS_STORAGE_KEY = 'candy_crush_saga_settings_v1';
+const SETTINGS_STORAGE_KEY = 'sugar_pop_settings_v1';
 
 export const DEFAULT_SETTINGS: GameSettings = {
   gameSounds: true,
